@@ -69,7 +69,7 @@ const paymentMethodSchema = new mongoose.Schema(
     provider: {
       type: String,
       required: true,
-      enum: ["stripe", "paypal", "apple_pay", "google_pay"],
+      enum: ["paypal", "apple_pay", "google_pay"],
     },
     status: {
       type: String,

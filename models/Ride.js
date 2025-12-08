@@ -54,7 +54,7 @@ const rideSchema = new mongoose.Schema(
     driverEarnings: { type: Number, default: 0 }, // Driver's net earnings (80%)
     paymentMethod: {
       type: String,
-      enum: ["cash", "card", "wallet", "stripe"],
+      enum: ["cash", "card", "wallet"],
       default: "cash",
     },
     specialInstructions: { type: String },
