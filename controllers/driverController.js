@@ -1,6 +1,7 @@
 const Driver = require("../models/Driver");
 const Ride = require("../models/Ride");
 const LiveLocation = require("../models/LiveLocation");
+const User = require("../models/User");
 const { sendSuccess, sendError } = require("../utils/responseHelper");
 const path = require("path");
 const fs = require("fs");
@@ -62,6 +63,7 @@ exports.uploadPhoto = async (req, res) => {
 
     // Validate file type
     const allowedTypes = ["image/jpeg", "image/jpg", "image/png"];
+
     if (!allowedTypes.includes(req.file.mimetype)) {
       return sendError(
         res,
@@ -227,10 +229,14 @@ exports.getProfile = async (req, res) => {
   try {
     const driver = await Driver.findOne({ user: req.user.id })
       .populate("user", "fullName email phone")
-      .populate("documents.drivingLicense.verifiedBy", "fullName")
-      .populate("documents.vehicleInsurance.verifiedBy", "fullName")
+      .populate("documents.drivingLicenseFront.verifiedBy", "fullName")
+      .populate("documents.drivingLicenseBack.verifiedBy", "fullName")
+      .populate("documents.cnicFront.verifiedBy", "fullName")
+      .populate("documents.cnicBack.verifiedBy", "fullName")
       .populate("documents.vehicleRegistration.verifiedBy", "fullName")
-      .populate("documents.motCertificate.verifiedBy", "fullName");
+      .populate("documents.insuranceCertificate.verifiedBy", "fullName")
+      .populate("documents.vehiclePhotoFront.verifiedBy", "fullName")
+      .populate("documents.vehiclePhotoSide.verifiedBy", "fullName");
 
     if (!driver) {
       return sendError(res, "Driver profile not found", 404);
@@ -965,15 +971,24 @@ exports.updateLocation = async (req, res) => {
       return sendError(res, "Location updates too frequent", 429);
     }
 
+    // Get driver profile
+    console.log("Looking for driver with user ID:", driverId);
+    const driver = await Driver.findOne({ user: driverId });
+    console.log("Driver found:", driver ? driver._id : "NOT FOUND");
+
+    if (!driver) {
+      return sendError(res, "Driver profile not found", 404);
+    }
+
     // Check if driver has an active ride (optional - for validation)
     const activeRide = await Ride.findOne({
-      driver: driverId,
+      driver: driver._id,
       status: { $in: ["accepted", "arrived", "in_progress"] },
     });
 
     // Update or create live location
     const locationData = {
-      driver: driverId,
+      driver: driver._id,
       latitude: parseFloat(latitude),
       longitude: parseFloat(longitude),
       heading: heading ? parseFloat(heading) : 0,
@@ -981,17 +996,27 @@ exports.updateLocation = async (req, res) => {
       timestamp: timestamp ? new Date(timestamp) : new Date(),
     };
 
+    console.log("Creating/updating location with data:", locationData);
+
     // Upsert location (update if exists, create if not)
-    await LiveLocation.findOneAndUpdate({ driver: driverId }, locationData, {
-      upsert: true,
-      new: true,
-      setDefaultsOnInsert: true,
-    });
+    const locationResult = await LiveLocation.findOneAndUpdate(
+      { driver: driver._id },
+      locationData,
+      {
+        upsert: true,
+        new: true,
+        setDefaultsOnInsert: true,
+      }
+    );
+
+    console.log("Location result:", locationResult);
 
     // Update user's last location update timestamp
-    await User.findByIdAndUpdate(driverId, {
+    const userUpdateResult = await User.findByIdAndUpdate(driverId, {
       lastLocationUpdate: now,
     });
+
+    console.log("User update result:", userUpdateResult);
 
     sendSuccess(
       res,
@@ -1010,7 +1035,8 @@ exports.updateLocation = async (req, res) => {
     );
   } catch (error) {
     console.error("Update location error:", error);
-    sendError(res, "Failed to update location", 500);
+    console.error("Error stack:", error.stack);
+    sendError(res, `Failed to update location: ${error.message}`, 500);
   }
 };
 

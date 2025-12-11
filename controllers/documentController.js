@@ -56,10 +56,14 @@ const upload = multer({
 
 // Upload document fields
 const uploadDocuments = upload.fields([
-  { name: "drivingLicense", maxCount: 1 },
-  { name: "vehicleInsurance", maxCount: 1 },
+  { name: "drivingLicenseFront", maxCount: 1 },
+  { name: "drivingLicenseBack", maxCount: 1 },
+  { name: "cnicFront", maxCount: 1 },
+  { name: "cnicBack", maxCount: 1 },
   { name: "vehicleRegistration", maxCount: 1 },
-  { name: "motCertificate", maxCount: 1 },
+  { name: "insuranceCertificate", maxCount: 1 },
+  { name: "vehiclePhotoFront", maxCount: 1 },
+  { name: "vehiclePhotoSide", maxCount: 1 },
 ]);
 
 // Upload driver documents
@@ -91,10 +95,14 @@ exports.uploadDriverDocuments = [
 
       const uploadedDocuments = [];
       const documentFields = [
-        "drivingLicense",
-        "vehicleInsurance",
+        "drivingLicenseFront",
+        "drivingLicenseBack",
+        "cnicFront",
+        "cnicBack",
         "vehicleRegistration",
-        "motCertificate",
+        "insuranceCertificate",
+        "vehiclePhotoFront",
+        "vehiclePhotoSide",
       ];
 
       // Process uploaded files
@@ -123,22 +131,7 @@ exports.uploadDriverDocuments = [
         }
       });
 
-      // Handle additional data (like expiry dates for insurance/MOT)
-      if (req.body.vehicleInsuranceExpiry) {
-        if (driver.documents.vehicleInsurance) {
-          driver.documents.vehicleInsurance.expiryDate = new Date(
-            req.body.vehicleInsuranceExpiry
-          );
-        }
-      }
-
-      if (req.body.motCertificateExpiry) {
-        if (driver.documents.motCertificate) {
-          driver.documents.motCertificate.expiryDate = new Date(
-            req.body.motCertificateExpiry
-          );
-        }
-      }
+      // No additional data handling needed for documents
 
       await driver.save();
 
@@ -194,18 +187,29 @@ exports.getDriverDocuments = async (req, res) => {
 
     const documents = driver.documents || {};
     const documentStatus = {
-      drivingLicense: {
-        uploaded: !!documents.drivingLicense,
-        verified: documents.drivingLicense?.verified || false,
-        url: documents.drivingLicense?.url,
-        uploadedAt: documents.drivingLicense?.uploadedAt,
+      drivingLicenseFront: {
+        uploaded: !!documents.drivingLicenseFront,
+        verified: documents.drivingLicenseFront?.verified || false,
+        url: documents.drivingLicenseFront?.url,
+        uploadedAt: documents.drivingLicenseFront?.uploadedAt,
       },
-      vehicleInsurance: {
-        uploaded: !!documents.vehicleInsurance,
-        verified: documents.vehicleInsurance?.verified || false,
-        url: documents.vehicleInsurance?.url,
-        uploadedAt: documents.vehicleInsurance?.uploadedAt,
-        expiryDate: documents.vehicleInsurance?.expiryDate,
+      drivingLicenseBack: {
+        uploaded: !!documents.drivingLicenseBack,
+        verified: documents.drivingLicenseBack?.verified || false,
+        url: documents.drivingLicenseBack?.url,
+        uploadedAt: documents.drivingLicenseBack?.uploadedAt,
+      },
+      cnicFront: {
+        uploaded: !!documents.cnicFront,
+        verified: documents.cnicFront?.verified || false,
+        url: documents.cnicFront?.url,
+        uploadedAt: documents.cnicFront?.uploadedAt,
+      },
+      cnicBack: {
+        uploaded: !!documents.cnicBack,
+        verified: documents.cnicBack?.verified || false,
+        url: documents.cnicBack?.url,
+        uploadedAt: documents.cnicBack?.uploadedAt,
       },
       vehicleRegistration: {
         uploaded: !!documents.vehicleRegistration,
@@ -213,20 +217,38 @@ exports.getDriverDocuments = async (req, res) => {
         url: documents.vehicleRegistration?.url,
         uploadedAt: documents.vehicleRegistration?.uploadedAt,
       },
-      motCertificate: {
-        uploaded: !!documents.motCertificate,
-        verified: documents.motCertificate?.verified || false,
-        url: documents.motCertificate?.url,
-        uploadedAt: documents.motCertificate?.uploadedAt,
-        expiryDate: documents.motCertificate?.expiryDate,
+      insuranceCertificate: {
+        uploaded: !!documents.insuranceCertificate,
+        verified: documents.insuranceCertificate?.verified || false,
+        url: documents.insuranceCertificate?.url,
+        uploadedAt: documents.insuranceCertificate?.uploadedAt,
+      },
+      vehiclePhotoFront: {
+        uploaded: !!documents.vehiclePhotoFront,
+        verified: documents.vehiclePhotoFront?.verified || false,
+        url: documents.vehiclePhotoFront?.url,
+        uploadedAt: documents.vehiclePhotoFront?.uploadedAt,
+      },
+      vehiclePhotoSide: {
+        uploaded: !!documents.vehiclePhotoSide,
+        verified: documents.vehiclePhotoSide?.verified || false,
+        url: documents.vehiclePhotoSide?.url,
+        uploadedAt: documents.vehiclePhotoSide?.uploadedAt,
       },
     };
+
+    // Count uploaded documents
+    const uploadedCount = Object.values(documentStatus).filter(
+      (doc) => doc.uploaded
+    ).length;
 
     sendSuccess(
       res,
       {
         driverId: driver._id,
         documents: documentStatus,
+        uploadedDocumentsCount: uploadedCount,
+        totalDocumentsRequired: 8,
         allDocumentsUploaded: Object.values(documentStatus).every(
           (doc) => doc.uploaded
         ),
@@ -264,10 +286,14 @@ exports.deleteDriverDocument = async (req, res) => {
     }
 
     const validDocumentTypes = [
-      "drivingLicense",
-      "vehicleInsurance",
+      "drivingLicenseFront",
+      "drivingLicenseBack",
+      "cnicFront",
+      "cnicBack",
       "vehicleRegistration",
-      "motCertificate",
+      "insuranceCertificate",
+      "vehiclePhotoFront",
+      "vehiclePhotoSide",
     ];
     if (!validDocumentTypes.includes(documentType)) {
       return sendError(res, "Invalid document type", 400);

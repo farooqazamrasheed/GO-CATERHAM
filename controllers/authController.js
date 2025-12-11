@@ -202,10 +202,11 @@ exports.signup = async (req, res) => {
         // Calculate estimated approval time (24-48 hours from now)
         const estimatedApprovalTime = new Date(
           Date.now() + 48 * 60 * 60 * 1000
-        ); // 48 hours
+        );
 
         profileInfo = {
           onlineStatus: driverProfile.status,
+          driverId: driverProfile._id, // Include this for frontend
           vehicleDetails: {
             vehicle: driverProfile.vehicle,
             vehicleModel: driverProfile.vehicleModel,
@@ -220,12 +221,19 @@ exports.signup = async (req, res) => {
             estimatedApprovalTime,
             submittedAt: new Date(),
             documentsRequired: [
-              "drivingLicense",
-              "vehicleInsurance",
+              "drivingLicenseFront",
+              "drivingLicenseBack",
+              "cnicFront",
+              "cnicBack",
               "vehicleRegistration",
-              "motCertificate",
+              "insuranceCertificate",
+              "vehiclePhotoFront",
+              "vehiclePhotoSide",
             ],
-            documentsUploaded: [], // Will be populated when documents are uploaded
+            documentsUploaded: [], // Empty initially
+            documentsStatus: "pending", // Status: pending, incomplete, complete
+            nextStep: "upload_documents", // Tell frontend what to do next
+            uploadEndpoint: `/api/v1/drivers/${driverProfile._id}/documents`,
           },
         };
       } else if (role === "rider") {
@@ -339,7 +347,8 @@ exports.signup = async (req, res) => {
       201
     );
   } catch (err) {
-    throw err;
+    console.error("Signup error:", err);
+    sendError(res, "Failed to create user account", 500);
   }
 };
 
@@ -348,11 +357,13 @@ exports.login = async (req, res) => {
   try {
     const { identifier, password, role } = req.body; // identifier can be username, email or phone
 
-    // Restrict roles to rider/driver/admin/superadmin only
-    if (!["rider", "driver", "admin", "superadmin"].includes(role)) {
+    // Restrict roles to rider/driver/admin/superadmin/subadmin only
+    if (
+      !["rider", "driver", "admin", "superadmin", "subadmin"].includes(role)
+    ) {
       return sendError(
         res,
-        "Invalid role. Only rider, driver, admin, and superadmin roles are allowed for login",
+        "Invalid role. Only rider, driver, admin, superadmin, and subadmin roles are allowed for login",
         400
       );
     }
@@ -499,7 +510,8 @@ exports.login = async (req, res) => {
       200
     );
   } catch (err) {
-    throw err;
+    console.error("Login error:", err);
+    sendError(res, "Login failed", 500);
   }
 };
 
@@ -526,7 +538,8 @@ exports.logout = async (req, res) => {
 
     sendSuccess(res, null, "Logged out successfully", 200);
   } catch (err) {
-    throw err;
+    console.error("Logout error:", err);
+    sendError(res, "Logout failed", 500);
   }
 };
 
@@ -557,7 +570,8 @@ exports.refreshToken = async (req, res) => {
       200
     );
   } catch (err) {
-    throw err;
+    console.error("Refresh token error:", err);
+    sendError(res, "Failed to refresh token", 500);
   }
 };
 
@@ -653,7 +667,8 @@ exports.requestOTP = async (req, res) => {
       200
     );
   } catch (err) {
-    throw err;
+    console.error("Request OTP error:", err);
+    sendError(res, "Failed to request OTP", 500);
   }
 };
 
@@ -741,7 +756,8 @@ exports.verifyOTP = async (req, res) => {
 
     sendSuccess(res, { resetToken }, "OTP verified successfully", 200);
   } catch (err) {
-    throw err;
+    console.error("Verify OTP error:", err);
+    sendError(res, "Failed to verify OTP", 500);
   }
 };
 
@@ -777,6 +793,7 @@ exports.resetPassword = async (req, res) => {
 
     sendSuccess(res, null, "Password reset successful", 200);
   } catch (err) {
-    throw err;
+    console.error("Reset password error:", err);
+    sendError(res, "Failed to reset password", 500);
   }
 };

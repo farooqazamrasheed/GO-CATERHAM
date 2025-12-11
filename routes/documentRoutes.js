@@ -13,7 +13,7 @@ router.use(auth);
 router.post(
   "/driver/:driverId/upload",
   checkPermission("upload_documents"),
-  documentController.uploadDriverDocuments
+  ...documentController.uploadDriverDocuments
 );
 
 // Get driver documents status - drivers can view their own, admins can view any

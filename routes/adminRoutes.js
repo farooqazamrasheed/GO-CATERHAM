@@ -25,6 +25,38 @@ router.put(
   adminController.rejectDriver
 );
 
+// Full driver management - view drivers
+router.get(
+  "/drivers",
+  checkPermission("view_drivers"),
+  adminController.getDrivers
+);
+router.get(
+  "/drivers/:driverId",
+  checkPermission("view_drivers"),
+  adminController.getDriverDetails
+);
+
+// Full driver management - manage drivers
+router.put(
+  "/drivers/:driverId/profile",
+  checkPermission("manage_drivers"),
+  auditLoggers.updateAdminPermissions, // Reuse existing logger
+  adminController.updateDriverProfile
+);
+router.put(
+  "/drivers/:driverId/status",
+  checkPermission("manage_drivers"),
+  auditLoggers.updateAdminPermissions, // Reuse existing logger
+  adminController.manageDriverStatus
+);
+router.delete(
+  "/drivers/:driverId",
+  checkPermission("manage_drivers"),
+  auditLoggers.deleteAdmin, // Reuse existing logger
+  adminController.deleteDriver
+);
+
 // Admin status - any admin role
 router.put(
   "/status",
@@ -49,6 +81,12 @@ router.put(
   checkPermission("manage_admin_permissions"),
   auditLoggers.updateAdminPermissions,
   adminController.updateAdminPermissions
+);
+router.put(
+  "/admins/:id/profile",
+  checkPermission("manage_admin_permissions"),
+  auditLoggers.updateAdminPermissions, // Reuse the same logger
+  adminController.updateAdminProfile
 );
 router.delete(
   "/admins/:id",

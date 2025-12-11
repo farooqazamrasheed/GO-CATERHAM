@@ -32,7 +32,7 @@ const driverSchema = new mongoose.Schema(
     numberPlateOfVehicle: { type: String, required: true, trim: true },
     // Document uploads
     documents: {
-      drivingLicense: {
+      drivingLicenseFront: {
         url: String,
         uploadedAt: Date,
         verified: { type: Boolean, default: false },
@@ -42,10 +42,29 @@ const driverSchema = new mongoose.Schema(
           ref: "User",
         },
       },
-      vehicleInsurance: {
+      drivingLicenseBack: {
         url: String,
         uploadedAt: Date,
-        expiryDate: Date,
+        verified: { type: Boolean, default: false },
+        verifiedAt: Date,
+        verifiedBy: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: "User",
+        },
+      },
+      cnicFront: {
+        url: String,
+        uploadedAt: Date,
+        verified: { type: Boolean, default: false },
+        verifiedAt: Date,
+        verifiedBy: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: "User",
+        },
+      },
+      cnicBack: {
+        url: String,
+        uploadedAt: Date,
         verified: { type: Boolean, default: false },
         verifiedAt: Date,
         verifiedBy: {
@@ -63,10 +82,29 @@ const driverSchema = new mongoose.Schema(
           ref: "User",
         },
       },
-      motCertificate: {
+      insuranceCertificate: {
         url: String,
         uploadedAt: Date,
-        expiryDate: Date,
+        verified: { type: Boolean, default: false },
+        verifiedAt: Date,
+        verifiedBy: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: "User",
+        },
+      },
+      vehiclePhotoFront: {
+        url: String,
+        uploadedAt: Date,
+        verified: { type: Boolean, default: false },
+        verifiedAt: Date,
+        verifiedBy: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: "User",
+        },
+      },
+      vehiclePhotoSide: {
+        url: String,
+        uploadedAt: Date,
         verified: { type: Boolean, default: false },
         verifiedAt: Date,
         verifiedBy: {

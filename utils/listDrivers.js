@@ -1,5 +1,6 @@
 const mongoose = require("mongoose");
 const Driver = require("../models/Driver");
+const User = require("../models/User"); // Ensure User model is registered
 require("dotenv").config();
 
 async function listDrivers() {

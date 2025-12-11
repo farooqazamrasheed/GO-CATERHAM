@@ -16,6 +16,7 @@ const liveLocationSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-liveLocationSchema.index({ location: "2dsphere" });
+// Create 2dsphere index for geospatial queries
+liveLocationSchema.index({ latitude: 1, longitude: 1 });
 
 module.exports = mongoose.model("LiveLocation", liveLocationSchema);
