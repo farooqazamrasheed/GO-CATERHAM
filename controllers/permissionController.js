@@ -120,6 +120,11 @@ exports.updatePermission = async (req, res) => {
       return sendError(res, "Permission not found", 404);
     }
 
+    // Check if permission is system locked
+    if (permission.systemLocked) {
+      return sendError(res, "Cannot edit system-locked permission", 403);
+    }
+
     // Check permissions to edit
     const admin = await Admin.findOne({ user: userId });
     if (!admin) {
@@ -148,8 +153,8 @@ exports.updatePermission = async (req, res) => {
   }
 };
 
-// Delete permission
-exports.deletePermission = async (req, res) => {
+// Toggle permission active/inactive
+exports.togglePermission = async (req, res) => {
   try {
     const { id } = req.params;
     const userId = req.user.id;
@@ -159,52 +164,40 @@ exports.deletePermission = async (req, res) => {
       return sendError(res, "Permission not found", 404);
     }
 
-    // Check permissions to delete
+    // Check if permission is system locked
+    if (permission.systemLocked) {
+      return sendError(res, "Cannot toggle system-locked permission", 403);
+    }
+
+    // Check permissions to toggle
     const admin = await Admin.findOne({ user: userId });
     if (!admin) {
       return sendError(res, "Admin profile not found", 404);
     }
 
-    // Only superadmin can delete all permissions, admin can only delete their own permissions
+    // Only superadmin can toggle all permissions, admin can only toggle their own permissions
     if (
       admin.adminType !== "superadmin" &&
       permission.createdBy.toString() !== userId
     ) {
-      return sendError(res, "You can only delete permissions you created", 403);
+      return sendError(res, "You can only toggle permissions you created", 403);
     }
 
-    // Check if permission is used in any roles
-    const Role = require("../models/Role");
-    const rolesUsingPermission = await Role.find({
-      permissions: id,
-    });
+    // Toggle active status
+    permission.active = !permission.active;
+    await permission.save();
+    await permission.populate("createdBy", "fullName email");
 
-    if (rolesUsingPermission.length > 0) {
-      return sendError(
-        res,
-        "Cannot delete permission that is assigned to roles",
-        400
-      );
-    }
-
-    // Check if permission is directly assigned to any admin
-    const adminsWithPermission = await Admin.find({
-      assignedPermissions: id,
-    });
-
-    if (adminsWithPermission.length > 0) {
-      return sendError(
-        res,
-        "Cannot delete permission that is assigned to admins",
-        400
-      );
-    }
-
-    await Permission.findByIdAndDelete(id);
-
-    sendSuccess(res, null, "Permission deleted successfully", 200);
+    sendSuccess(
+      res,
+      { permission },
+      `Permission ${
+        permission.active ? "activated" : "deactivated"
+      } successfully`,
+      200
+    );
   } catch (err) {
-    console.error("Delete permission error:", err);
-    sendError(res, "Failed to delete permission", 500);
+    console.error("Toggle permission error:", err);
+    sendError(res, "Failed to toggle permission", 500);
   }
 };

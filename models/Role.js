@@ -20,6 +20,14 @@ const roleSchema = new mongoose.Schema(
         required: true,
       },
     ],
+    active: {
+      type: Boolean,
+      default: true,
+    },
+    systemLocked: {
+      type: Boolean,
+      default: false,
+    },
     createdBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",

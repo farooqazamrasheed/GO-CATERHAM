@@ -44,7 +44,7 @@ module.exports = function checkPermission(...requiredPermissions) {
             },
           });
 
-        if (!admin) {
+        if (!adminWithPermissions) {
           return sendError(res, "Admin profile not found", 404);
         }
 
@@ -59,10 +59,12 @@ module.exports = function checkPermission(...requiredPermissions) {
           }
         });
 
-        // Add permissions from assigned roles
+        // Add permissions from assigned roles (check active status)
         admin.assignedRoles.forEach((role) => {
           role.permissions.forEach((perm) => {
-            userPermissions.add(perm.name);
+            if (perm.active) {
+              userPermissions.add(perm.name);
+            }
           });
         });
 

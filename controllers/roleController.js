@@ -121,7 +121,7 @@ exports.getRole = async (req, res) => {
 exports.updateRole = async (req, res) => {
   try {
     const { id } = req.params;
-    const { name, description, permissions } = req.body;
+    const { name, description, permissions, addPermissions } = req.body;
     const userId = req.user.id;
 
     const role = await Role.findById(id);
@@ -143,20 +143,37 @@ exports.updateRole = async (req, res) => {
       return sendError(res, "You can only edit roles you created", 403);
     }
 
-    // Validate permissions if provided
+    // Handle permissions update
     if (permissions && Array.isArray(permissions)) {
+      // Replace all permissions
       const validPermissions = await Permission.find({
         _id: { $in: permissions },
       });
       if (validPermissions.length !== permissions.length) {
         return sendError(res, "One or more permissions are invalid", 400);
       }
+      role.permissions = permissions;
+    } else if (addPermissions && Array.isArray(addPermissions)) {
+      // Add new permissions to existing ones (no duplicates)
+      const validPermissions = await Permission.find({
+        _id: { $in: addPermissions },
+      });
+      if (validPermissions.length !== addPermissions.length) {
+        return sendError(res, "One or more permissions are invalid", 400);
+      }
+
+      // Merge permissions (avoid duplicates)
+      const existingPermissionIds = role.permissions.map((p) => p.toString());
+      const newPermissionIds = addPermissions.filter(
+        (permId) => !existingPermissionIds.includes(permId.toString())
+      );
+
+      role.permissions = [...role.permissions, ...newPermissionIds];
     }
 
-    // Update fields
+    // Update other fields
     if (name) role.name = name.toLowerCase();
     if (description) role.description = description;
-    if (permissions) role.permissions = permissions;
 
     await role.save();
     await role.populate("permissions", "name description");

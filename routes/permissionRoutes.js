@@ -37,11 +37,4 @@ router.put(
   permissionController.updatePermission
 );
 
-// Delete permission - only superadmin and admin (can only delete their own permissions)
-router.delete(
-  "/:id",
-  checkPermission("delete_permission"),
-  permissionController.deletePermission
-);
-
 module.exports = router;

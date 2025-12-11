@@ -414,7 +414,7 @@ exports.login = async (req, res) => {
       // Increment failed attempts
       user.failedLoginAttempts += 1;
       if (user.failedLoginAttempts >= 3) {
-        user.lockUntil = Date.now() + 15 * 60 * 1000; // 15 minutes
+        user.lockUntil = Date.now() + 1 * 60 * 1000; // 1 minute
         user.failedLoginAttempts = 0; // Reset attempts
       }
       await user.save();

@@ -1,6 +1,8 @@
 # Dependencies
 node_modules/
 
+API_DOCUMENTATION.md
+
 # Environment variables
 .env
 .env.local

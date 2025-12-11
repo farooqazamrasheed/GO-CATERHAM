@@ -28,15 +28,19 @@ class RBACService {
 
     const permissions = new Set();
 
-    // Add directly assigned permissions
+    // Add directly assigned permissions (check active status)
     admin.assignedPermissions.forEach((perm) => {
-      permissions.add(perm.name);
+      if (perm.active) {
+        permissions.add(perm.name);
+      }
     });
 
-    // Add permissions from assigned roles
+    // Add permissions from assigned roles (check active status)
     admin.assignedRoles.forEach((role) => {
       role.permissions.forEach((perm) => {
-        permissions.add(perm.name);
+        if (perm.active) {
+          permissions.add(perm.name);
+        }
       });
     });
 

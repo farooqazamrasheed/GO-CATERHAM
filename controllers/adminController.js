@@ -85,6 +85,7 @@ exports.updateStatus = async (req, res, next) => {
 exports.createAdmin = async (req, res) => {
   try {
     const {
+      username,
       fullName,
       email,
       password,
@@ -95,10 +96,10 @@ exports.createAdmin = async (req, res) => {
     const createdBy = req.user.id;
 
     // Validate required fields
-    if (!fullName || !email || !password || !adminType) {
+    if (!username || !fullName || !email || !password || !adminType) {
       return sendError(
         res,
-        "fullName, email, password, and adminType are required",
+        "username, fullName, email, password, and adminType are required",
         400
       );
     }
@@ -123,31 +124,10 @@ exports.createAdmin = async (req, res) => {
       return sendError(res, "Admin cannot create other admins", 403);
     }
 
-    // Check if email already exists
-    const existingUser = await User.findOne({ email });
-    if (existingUser) {
-      return sendError(res, "Email already registered", 409);
-    }
-
-    // Create user
-    const user = await User.create({
-      fullName,
-      email,
-      password,
-      role: adminType, // admin or subadmin
-    });
-
-    // Create admin profile
-    const adminData = {
-      user: user._id,
-      adminType,
-    };
-
-    // Handle permissions and roles if provided
+    // Validate permissions and roles before creating user
+    let processedPermissions = [];
     if (assignedPermissions && Array.isArray(assignedPermissions)) {
       // Support both simple array and detailed objects
-      const processedPermissions = [];
-
       for (const perm of assignedPermissions) {
         if (typeof perm === "string") {
           // Simple permission ID
@@ -178,17 +158,46 @@ exports.createAdmin = async (req, res) => {
           });
         }
       }
-
-      adminData.assignedPermissions = processedPermissions;
     }
 
+    let validatedRoles = [];
     if (assignedRoles && Array.isArray(assignedRoles)) {
       // Validate roles exist
       const validRoles = await Role.find({ _id: { $in: assignedRoles } });
       if (validRoles.length !== assignedRoles.length) {
         return sendError(res, "One or more roles are invalid", 400);
       }
-      adminData.assignedRoles = assignedRoles;
+      validatedRoles = assignedRoles;
+    }
+
+    // Check if email already exists
+    const existingUser = await User.findOne({ email });
+    if (existingUser) {
+      return sendError(res, "Email already registered", 409);
+    }
+
+    // Create user
+    const user = await User.create({
+      username,
+      fullName,
+      email,
+      password,
+      role: adminType, // admin or subadmin
+    });
+
+    // Create admin profile
+    const adminData = {
+      user: user._id,
+      adminType,
+    };
+
+    // Assign validated permissions and roles
+    if (processedPermissions.length > 0) {
+      adminData.assignedPermissions = processedPermissions;
+    }
+
+    if (validatedRoles.length > 0) {
+      adminData.assignedRoles = validatedRoles;
     }
 
     const admin = await Admin.create(adminData);
@@ -268,11 +277,16 @@ exports.getAdmins = async (req, res) => {
   }
 };
 
-// Update subadmin permissions
+// Update admin permissions and roles
 exports.updateAdminPermissions = async (req, res) => {
   try {
     const { id } = req.params;
-    const { assignedPermissions, assignedRoles } = req.body;
+    const {
+      assignedPermissions, // Replace all permissions
+      assignedRoles, // Replace all roles
+      addPermissions, // Add to existing permissions
+      addRoles, // Add to existing roles
+    } = req.body;
     const userId = req.user.id;
 
     const targetAdmin = await Admin.findById(id);
@@ -297,13 +311,72 @@ exports.updateAdminPermissions = async (req, res) => {
       return sendError(res, "Admin cannot modify other admin permissions", 403);
     }
 
-    // Validate permissions if provided
-    if (assignedPermissions && Array.isArray(assignedPermissions)) {
-      const processedPermissions = [];
+    // Validate and process permissions to add
+    let permissionsToAdd = [];
+    if (addPermissions && Array.isArray(addPermissions)) {
+      for (const perm of addPermissions) {
+        if (typeof perm === "string") {
+          const permissionExists = await Permission.findById(perm);
+          if (!permissionExists) {
+            return sendError(res, `Permission ${perm} does not exist`, 400);
+          }
+          // Check if permission already assigned
+          const alreadyAssigned = targetAdmin.assignedPermissions.some(
+            (p) => p.permissionId.toString() === perm
+          );
+          if (!alreadyAssigned) {
+            permissionsToAdd.push({
+              permissionId: perm,
+              grantedBy: userId,
+              grantedAt: new Date(),
+            });
+          }
+        } else if (typeof perm === "object" && perm.permissionId) {
+          const permissionExists = await Permission.findById(perm.permissionId);
+          if (!permissionExists) {
+            return sendError(
+              res,
+              `Permission ${perm.permissionId} does not exist`,
+              400
+            );
+          }
+          // Check if permission already assigned
+          const alreadyAssigned = targetAdmin.assignedPermissions.some(
+            (p) => p.permissionId.toString() === perm.permissionId
+          );
+          if (!alreadyAssigned) {
+            permissionsToAdd.push({
+              permissionId: perm.permissionId,
+              expiresAt: perm.expiresAt ? new Date(perm.expiresAt) : null,
+              grantedBy: userId,
+              grantedAt: new Date(),
+            });
+          }
+        }
+      }
+    }
 
+    // Validate and process roles to add
+    let rolesToAdd = [];
+    if (addRoles && Array.isArray(addRoles)) {
+      const validRoles = await Role.find({ _id: { $in: addRoles } });
+      if (validRoles.length !== addRoles.length) {
+        return sendError(res, "One or more roles to add are invalid", 400);
+      }
+      // Check if roles already assigned
+      rolesToAdd = addRoles.filter(
+        (roleId) =>
+          !targetAdmin.assignedRoles.some(
+            (existingRole) => existingRole.toString() === roleId
+          )
+      );
+    }
+
+    // Validate permissions to replace
+    let processedPermissions = [];
+    if (assignedPermissions && Array.isArray(assignedPermissions)) {
       for (const perm of assignedPermissions) {
         if (typeof perm === "string") {
-          // Simple permission ID
           const permissionExists = await Permission.findById(perm);
           if (!permissionExists) {
             return sendError(res, `Permission ${perm} does not exist`, 400);
@@ -314,7 +387,6 @@ exports.updateAdminPermissions = async (req, res) => {
             grantedAt: new Date(),
           });
         } else if (typeof perm === "object" && perm.permissionId) {
-          // Detailed permission object
           const permissionExists = await Permission.findById(perm.permissionId);
           if (!permissionExists) {
             return sendError(
@@ -331,29 +403,68 @@ exports.updateAdminPermissions = async (req, res) => {
           });
         }
       }
-
-      targetAdmin.assignedPermissions = processedPermissions;
     }
 
-    // Validate roles if provided
+    // Validate roles to replace
+    let validatedRoles = [];
     if (assignedRoles && Array.isArray(assignedRoles)) {
       const validRoles = await Role.find({ _id: { $in: assignedRoles } });
       if (validRoles.length !== assignedRoles.length) {
         return sendError(res, "One or more roles are invalid", 400);
       }
-      targetAdmin.assignedRoles = assignedRoles;
+      validatedRoles = assignedRoles;
+    }
+
+    // Apply updates based on operation type
+    let updateMessage = "Admin permissions updated successfully";
+
+    if (assignedPermissions && processedPermissions.length > 0) {
+      // Replace all permissions
+      targetAdmin.assignedPermissions = processedPermissions;
+      updateMessage = "Admin permissions replaced successfully";
+    } else if (addPermissions && permissionsToAdd.length > 0) {
+      // Add to existing permissions
+      targetAdmin.assignedPermissions = [
+        ...targetAdmin.assignedPermissions,
+        ...permissionsToAdd,
+      ];
+      updateMessage = "Permissions added to admin successfully";
+    }
+
+    if (assignedRoles && validatedRoles.length > 0) {
+      // Replace all roles
+      targetAdmin.assignedRoles = validatedRoles;
+      updateMessage = assignedPermissions
+        ? "Admin permissions and roles replaced successfully"
+        : "Admin roles replaced successfully";
+    } else if (addRoles && rolesToAdd.length > 0) {
+      // Add to existing roles
+      targetAdmin.assignedRoles = [...targetAdmin.assignedRoles, ...rolesToAdd];
+      updateMessage =
+        assignedPermissions || addPermissions
+          ? "Permissions and roles added to admin successfully"
+          : "Roles added to admin successfully";
+    }
+
+    // Check if any updates were made
+    if (
+      (!assignedPermissions || processedPermissions.length === 0) &&
+      (!addPermissions || permissionsToAdd.length === 0) &&
+      (!assignedRoles || validatedRoles.length === 0) &&
+      (!addRoles || rolesToAdd.length === 0)
+    ) {
+      return sendError(
+        res,
+        "No valid permissions or roles provided for update",
+        400
+      );
     }
 
     await targetAdmin.save();
     await targetAdmin.populate("assignedPermissions", "name description");
     await targetAdmin.populate("assignedRoles", "name description");
 
-    sendSuccess(
-      res,
-      { admin: targetAdmin },
-      "Admin permissions updated successfully",
-      200
-    );
+    sendSuccess(res, { admin: targetAdmin }, updateMessage, 200);
   } catch (err) {
     console.error("Update admin permissions error:", err);
     sendError(res, "Failed to update admin permissions", 500);
