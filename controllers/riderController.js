@@ -171,20 +171,16 @@ exports.getRideHistory = async (req, res) => {
 };
 
 // Top-up wallet
-exports.topUpWallet = async (req, res, next) => {
+exports.topUpWallet = async (req, res) => {
   try {
     const { amount } = req.body;
     if (!amount || amount <= 0) {
-      return res
-        .status(400)
-        .json({ success: false, message: "Invalid amount" });
+      return sendError(res, "Invalid amount", 400);
     }
 
-    const wallet = await Wallet.findOne({ user: req.user._id });
+    const wallet = await Wallet.findOne({ user: req.user.id });
     if (!wallet) {
-      return res
-        .status(404)
-        .json({ success: false, message: "Wallet not found" });
+      return sendError(res, "Wallet not found", 404);
     }
 
     wallet.balance += amount;
@@ -192,29 +188,25 @@ exports.topUpWallet = async (req, res, next) => {
 
     // Optional: create a Payment record for wallet top-up
     const payment = await Payment.create({
-      rider: req.user._id,
+      rider: req.user.id,
       amount,
       status: "paid",
       paymentMethod: "wallet",
     });
 
-    res
-      .status(200)
-      .json({ success: true, message: "Wallet topped up", wallet, payment });
+    sendSuccess(res, { wallet, payment }, "Wallet topped up successfully", 200);
   } catch (err) {
-    next(err);
+    console.error("Top-up wallet error:", err);
+    sendError(res, "Failed to top up wallet", 500);
   }
 };
 
 // Update rider status
-exports.updateStatus = async (req, res, next) => {
+exports.updateStatus = async (req, res) => {
   try {
     const { status } = req.body; // online/offline
     if (!["online", "offline"].includes(status)) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid status. Must be online or offline",
-      });
+      return sendError(res, "Invalid status. Must be online or offline", 400);
     }
 
     const rider = await Rider.findOneAndUpdate(
@@ -224,14 +216,13 @@ exports.updateStatus = async (req, res, next) => {
     );
 
     if (!rider) {
-      return res
-        .status(404)
-        .json({ success: false, message: "Rider profile not found" });
+      return sendError(res, "Rider profile not found", 404);
     }
 
-    res.status(200).json({ success: true, rider });
+    sendSuccess(res, { rider }, "Status updated successfully", 200);
   } catch (err) {
-    next(err);
+    console.error("Update status error:", err);
+    sendError(res, "Failed to update status", 500);
   }
 };
 

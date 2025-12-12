@@ -1,14 +1,18 @@
 const express = require("express");
 const router = express.Router();
 const auth = require("../middlewares/auth");
+const multer = require("multer");
 
 const authController = require("../controllers/authController");
 
-router.post("/signup", authController.signup);
-router.post("/login", authController.login);
-router.post("/logout", auth, authController.logout);
-router.post("/request-otp", authController.requestOTP);
-router.post("/verify-otp", authController.verifyOTP);
-router.post("/reset-password", authController.resetPassword);
+// Middleware to parse form data for auth routes
+const parseFormData = multer().none();
+
+router.post("/signup", parseFormData, authController.signup);
+router.post("/login", parseFormData, authController.login);
+router.post("/logout", auth, parseFormData, authController.logout);
+router.post("/request-otp", parseFormData, authController.requestOTP);
+router.post("/verify-otp", parseFormData, authController.verifyOTP);
+router.post("/reset-password", parseFormData, authController.resetPassword);
 
 module.exports = router;

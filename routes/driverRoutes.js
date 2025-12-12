@@ -5,8 +5,12 @@ const auth = require("../middlewares/auth");
 const checkPermission = require("../middlewares/permission");
 const multer = require("multer");
 const path = require("path");
+const { sendError } = require("../utils/responseHelper");
 
 const driverController = require("../controllers/driverController");
+
+// Middleware to parse form data for non-file routes
+const parseFormData = multer().none();
 
 // Configure multer for photo uploads
 const storage = multer.diskStorage({
@@ -62,12 +66,19 @@ router.get(
 router.post(
   "/profile",
   checkPermission("create_profile"),
+  parseFormData,
   driverController.createProfile
 );
 router.get(
   "/profile",
   checkPermission("view_profile"),
   driverController.getProfile
+);
+router.put(
+  "/profile",
+  checkPermission("update_profile"),
+  parseFormData,
+  driverController.updateProfile
 );
 
 // Driver status management
@@ -79,6 +90,7 @@ router.get(
 router.put(
   "/status",
   checkPermission("update_status"),
+  parseFormData,
   driverController.updateStatus
 );
 
@@ -94,6 +106,16 @@ router.post(
   "/photo",
   checkPermission("upload_photo"),
   upload.single("photo"),
+  (err, req, res, next) => {
+    if (err instanceof multer.MulterError) {
+      // A Multer error occurred when uploading.
+      return sendError(res, err.message, 400);
+    } else if (err) {
+      // An unknown error occurred when uploading.
+      return sendError(res, err.message, 400);
+    }
+    next();
+  },
   driverController.uploadPhoto
 );
 router.get(
@@ -106,6 +128,7 @@ router.get(
 router.post(
   "/location",
   checkPermission("update_location"),
+  parseFormData,
   driverController.updateLocation
 );
 

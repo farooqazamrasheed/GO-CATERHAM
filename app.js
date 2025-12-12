@@ -1,7 +1,6 @@
 const express = require("express");
 const cors = require("cors");
 const morgan = require("morgan");
-const multer = require("multer");
 const path = require("path");
 
 const authRoutes = require("./routes/authRoutes");
@@ -25,7 +24,6 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-app.use(multer().none());
 app.use(morgan("dev"));
 
 // Routes

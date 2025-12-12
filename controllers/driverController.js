@@ -249,6 +249,143 @@ exports.getProfile = async (req, res) => {
   }
 };
 
+// Update driver profile
+exports.updateProfile = async (req, res) => {
+  try {
+    const {
+      username,
+      fullName,
+      email,
+      phone,
+      vehicle,
+      vehicleModel,
+      vehicleYear,
+      vehicleColor,
+      vehicleType,
+      numberPlateOfVehicle,
+    } = req.body;
+
+    // Find the driver
+    const driver = await Driver.findOne({ user: req.user.id });
+    if (!driver) {
+      return sendError(res, "Driver profile not found", 404);
+    }
+
+    // Find the user
+    const user = await User.findById(req.user.id);
+    if (!user) {
+      return sendError(res, "User not found", 404);
+    }
+
+    // Update user fields if provided
+    if (username !== undefined) {
+      // Check if username is already taken by another user
+      const existingUser = await User.findOne({
+        username: username.toLowerCase(),
+        _id: { $ne: req.user.id },
+      });
+      if (existingUser) {
+        return sendError(res, "Username already taken", 409);
+      }
+      user.username = username.toLowerCase();
+    }
+
+    if (fullName !== undefined) {
+      user.fullName = fullName;
+    }
+
+    if (email !== undefined) {
+      // Check if email is already taken by another user
+      const existingUser = await User.findOne({
+        email: email.toLowerCase(),
+        _id: { $ne: req.user.id },
+      });
+      if (existingUser) {
+        return sendError(res, "Email already taken", 409);
+      }
+      user.email = email.toLowerCase();
+    }
+
+    if (phone !== undefined) {
+      user.phone = phone;
+    }
+
+    // Update driver fields if provided
+    if (vehicle !== undefined) {
+      driver.vehicle = vehicle;
+    }
+
+    if (vehicleModel !== undefined) {
+      driver.vehicleModel = vehicleModel;
+    }
+
+    if (vehicleYear !== undefined) {
+      driver.vehicleYear = vehicleYear;
+    }
+
+    if (vehicleColor !== undefined) {
+      driver.vehicleColor = vehicleColor;
+    }
+
+    if (vehicleType !== undefined) {
+      const validTypes = [
+        "sedan",
+        "suv",
+        "electric",
+        "hatchback",
+        "coupe",
+        "convertible",
+        "wagon",
+        "pickup",
+        "van",
+        "motorcycle",
+      ];
+      if (!validTypes.includes(vehicleType)) {
+        return sendError(res, "Invalid vehicle type", 400);
+      }
+      driver.vehicleType = vehicleType;
+    }
+
+    if (numberPlateOfVehicle !== undefined) {
+      // Check if number plate is already taken by another driver
+      const existingDriver = await Driver.findOne({
+        numberPlateOfVehicle,
+        _id: { $ne: driver._id },
+      });
+      if (existingDriver) {
+        return sendError(res, "Number plate already registered", 409);
+      }
+      driver.numberPlateOfVehicle = numberPlateOfVehicle;
+    }
+
+    // Save changes
+    await user.save();
+    await driver.save();
+
+    // Return updated profile
+    const updatedDriver = await Driver.findOne({ user: req.user.id })
+      .populate("user", "username fullName email phone")
+      .populate("documents.drivingLicenseFront.verifiedBy", "fullName")
+      .populate("documents.drivingLicenseBack.verifiedBy", "fullName")
+      .populate("documents.cnicFront.verifiedBy", "fullName")
+      .populate("documents.cnicBack.verifiedBy", "fullName")
+      .populate("documents.vehicleRegistration.verifiedBy", "fullName")
+      .populate("documents.insuranceCertificate.verifiedBy", "fullName")
+      .populate("documents.vehiclePhotoFront.verifiedBy", "fullName")
+      .populate("documents.vehiclePhotoSide.verifiedBy", "fullName");
+
+    sendSuccess(
+      res,
+      { driver: updatedDriver },
+      "Profile updated successfully",
+      200
+    );
+  } catch (error) {
+    console.error("Update profile error:", error);
+    sendError(res, "Failed to update profile", 500);
+  }
+};
+
 // Create driver profile
 exports.createProfile = async (req, res) => {
   try {
