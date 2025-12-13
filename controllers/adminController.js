@@ -3,6 +3,9 @@ const User = require("../models/User");
 const Admin = require("../models/Admin");
 const Role = require("../models/Role");
 const Permission = require("../models/Permission");
+const Rider = require("../models/Rider");
+const Ride = require("../models/Ride");
+const Payment = require("../models/Payment");
 const { sendSuccess, sendError } = require("../utils/responseHelper");
 const { auditLoggers } = require("../middlewares/audit");
 const bcrypt = require("bcryptjs");
@@ -495,7 +498,8 @@ exports.updateAdminPermissions = async (req, res) => {
 exports.updateAdminProfile = async (req, res) => {
   try {
     const { id } = req.params;
-    const { fullName, username, email, phone, password } = req.body;
+    const body = req.body || {};
+    const { fullName, username, email, phone, password } = body;
     const userId = req.user.id;
 
     const targetAdmin = await Admin.findById(id);
@@ -575,7 +579,10 @@ exports.updateAdminProfile = async (req, res) => {
     if (username) userUpdates.username = username.toLowerCase();
     if (email) userUpdates.email = email.toLowerCase();
     if (phone) userUpdates.phone = phone;
-    if (password) userUpdates.password = password;
+    if (password) {
+      const saltRounds = 10;
+      userUpdates.password = await bcrypt.hash(password, saltRounds);
+    }
 
     // Check if any updates were provided
     if (Object.keys(userUpdates).length === 0) {
@@ -935,5 +942,62 @@ exports.manageDriverStatus = async (req, res) => {
   } catch (err) {
     console.error("Manage driver status error:", err);
     sendError(res, "Failed to manage driver status", 500);
+  }
+};
+
+// Get dashboard counters
+exports.getDashboard = async (req, res) => {
+  try {
+    // Riders counts
+    const totalRiders = await Rider.countDocuments();
+    const activeRiders = await Rider.countDocuments({ status: "online" });
+    const inactiveRiders = await Rider.countDocuments({ status: "offline" });
+
+    // Drivers counts
+    const totalDrivers = await Driver.countDocuments();
+    const activeDrivers = await Driver.countDocuments({
+      status: { $in: ["online", "busy"] },
+    });
+    const inactiveDrivers = await Driver.countDocuments({ status: "offline" });
+
+    // Rides count
+    const totalRides = await Ride.countDocuments();
+
+    // Revenue - sum of paid payments
+    const revenueResult = await Payment.aggregate([
+      { $match: { status: "paid" } },
+      { $group: { _id: null, total: { $sum: "$amount" } } },
+    ]);
+    const revenue = revenueResult.length > 0 ? revenueResult[0].total : 0;
+
+    // Admins counts
+    const totalAdmins = await Admin.countDocuments();
+    const activeAdmins = await Admin.countDocuments({ status: "online" });
+    const inactiveAdmins = await Admin.countDocuments({ status: "offline" });
+
+    const dashboard = {
+      riders: {
+        total: totalRiders,
+        active: activeRiders,
+        inactive: inactiveRiders,
+      },
+      drivers: {
+        total: totalDrivers,
+        active: activeDrivers,
+        inactive: inactiveDrivers,
+      },
+      rides: totalRides,
+      revenue: revenue,
+      admins: {
+        total: totalAdmins,
+        active: activeAdmins,
+        inactive: inactiveAdmins,
+      },
+    };
+
+    sendSuccess(res, dashboard, "Dashboard data retrieved successfully", 200);
+  } catch (err) {
+    console.error("Get dashboard error:", err);
+    sendError(res, "Failed to retrieve dashboard data", 500);
   }
 };

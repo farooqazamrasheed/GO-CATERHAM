@@ -112,9 +112,9 @@ const auditLoggers = {
   // Admin management
   createAdmin: auditLogger("CREATE_ADMIN", "admin", (req, resData) => ({
     details: {
-      adminType: req.body.adminType,
-      assignedPermissions: req.body.assignedPermissions,
-      assignedRoles: req.body.assignedRoles,
+      adminType: req.body?.adminType,
+      assignedPermissions: req.body?.assignedPermissions,
+      assignedRoles: req.body?.assignedRoles,
     },
     newValues: resData?.admin || {},
   })),
@@ -125,8 +125,8 @@ const auditLoggers = {
     (req, resData) => ({
       details: {
         adminId: req.params.id,
-        assignedPermissions: req.body.assignedPermissions,
-        assignedRoles: req.body.assignedRoles,
+        assignedPermissions: req.body?.assignedPermissions,
+        assignedRoles: req.body?.assignedRoles,
       },
       newValues: resData?.admin || {},
     })
@@ -189,6 +189,10 @@ const auditLoggers = {
   rejectDriver: auditLogger("REJECT_DRIVER", "driver", (req, resData) => ({
     details: { driverId: req.params.driverId },
     newValues: resData?.driver || {},
+  })),
+
+  deleteDriver: auditLogger("DELETE_DRIVER", "driver", (req) => ({
+    details: { driverId: req.params.driverId },
   })),
 };
 

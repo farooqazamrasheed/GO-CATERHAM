@@ -1,70 +1,9 @@
-const multer = require("multer");
-const path = require("path");
-const fs = require("fs");
 const Driver = require("../models/Driver");
 const { sendSuccess, sendError } = require("../utils/responseHelper");
-
-// Configure multer for file uploads
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    const uploadDir = path.join(__dirname, "../uploads/documents");
-    // Create directory if it doesn't exist
-    if (!fs.existsSync(uploadDir)) {
-      fs.mkdirSync(uploadDir, { recursive: true });
-    }
-    cb(null, uploadDir);
-  },
-  filename: (req, file, cb) => {
-    // Generate unique filename with timestamp
-    const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1e9);
-    cb(
-      null,
-      file.fieldname + "-" + uniqueSuffix + path.extname(file.originalname)
-    );
-  },
-});
-
-// File filter for document types
-const fileFilter = (req, file, cb) => {
-  const allowedTypes = [
-    "image/jpeg",
-    "image/jpg",
-    "image/png",
-    "application/pdf",
-  ];
-
-  if (allowedTypes.includes(file.mimetype)) {
-    cb(null, true);
-  } else {
-    cb(
-      new Error(
-        "Invalid file type. Only JPEG, PNG, and PDF files are allowed."
-      ),
-      false
-    );
-  }
-};
-
-// Configure multer upload
-const upload = multer({
-  storage: storage,
-  fileFilter: fileFilter,
-  limits: {
-    fileSize: 5 * 1024 * 1024, // 5MB limit
-  },
-});
+const { documentUpload, documentFields } = require("../config/multerConfig");
 
 // Upload document fields
-const uploadDocuments = upload.fields([
-  { name: "drivingLicenseFront", maxCount: 1 },
-  { name: "drivingLicenseBack", maxCount: 1 },
-  { name: "cnicFront", maxCount: 1 },
-  { name: "cnicBack", maxCount: 1 },
-  { name: "vehicleRegistration", maxCount: 1 },
-  { name: "insuranceCertificate", maxCount: 1 },
-  { name: "vehiclePhotoFront", maxCount: 1 },
-  { name: "vehiclePhotoSide", maxCount: 1 },
-]);
+const uploadDocuments = documentUpload.fields(documentFields);
 
 // Upload driver documents
 exports.uploadDriverDocuments = [

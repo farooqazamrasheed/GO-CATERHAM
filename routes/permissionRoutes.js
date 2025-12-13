@@ -1,5 +1,6 @@
 const express = require("express");
 const router = express.Router();
+const multer = require("multer");
 
 const auth = require("../middlewares/auth");
 const checkPermission = require("../middlewares/permission");
@@ -12,6 +13,7 @@ router.use(auth);
 // Create permission - only superadmin and admin
 router.post(
   "/",
+  multer().none(),
   checkPermission("create_permission"),
   permissionController.createPermission
 );
@@ -33,6 +35,7 @@ router.get(
 // Update permission - only superadmin and admin (can only edit their own permissions)
 router.put(
   "/:id",
+  multer().none(),
   checkPermission("edit_permission"),
   permissionController.updatePermission
 );

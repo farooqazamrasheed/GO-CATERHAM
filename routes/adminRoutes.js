@@ -1,5 +1,6 @@
 const express = require("express");
 const router = express.Router();
+const multer = require("multer");
 
 const auth = require("../middlewares/auth");
 const checkPermission = require("../middlewares/permission");
@@ -7,6 +8,9 @@ const { checkRole } = require("../middlewares/permission");
 const { auditLoggers } = require("../middlewares/audit");
 
 const adminController = require("../controllers/adminController");
+
+// Middleware to parse form data for admin routes
+const parseFormData = multer().none();
 
 // All routes require authentication
 router.use(auth);
@@ -40,12 +44,14 @@ router.get(
 // Full driver management - manage drivers
 router.put(
   "/drivers/:driverId/profile",
+  parseFormData,
   checkPermission("manage_drivers"),
   auditLoggers.updateAdminPermissions, // Reuse existing logger
   adminController.updateDriverProfile
 );
 router.put(
   "/drivers/:driverId/status",
+  parseFormData,
   checkPermission("manage_drivers"),
   auditLoggers.updateAdminPermissions, // Reuse existing logger
   adminController.manageDriverStatus
@@ -53,7 +59,7 @@ router.put(
 router.delete(
   "/drivers/:driverId",
   checkPermission("manage_drivers"),
-  auditLoggers.deleteAdmin, // Reuse existing logger
+  auditLoggers.deleteDriver,
   adminController.deleteDriver
 );
 
@@ -61,12 +67,21 @@ router.delete(
 router.put(
   "/status",
   checkRole("admin", "superadmin", "subadmin"),
+  parseFormData,
   adminController.updateStatus
+);
+
+// Dashboard - any admin role
+router.get(
+  "/dashboard",
+  checkRole("admin", "superadmin", "subadmin"),
+  adminController.getDashboard
 );
 
 // Admin management - only superadmin and admin
 router.post(
   "/admins",
+  parseFormData,
   checkPermission("create_admin"),
   auditLoggers.createAdmin,
   adminController.createAdmin
@@ -78,12 +93,14 @@ router.get(
 );
 router.put(
   "/admins/:id/permissions",
+  parseFormData,
   checkPermission("manage_admin_permissions"),
   auditLoggers.updateAdminPermissions,
   adminController.updateAdminPermissions
 );
 router.put(
   "/admins/:id/profile",
+  parseFormData,
   checkPermission("manage_admin_permissions"),
   auditLoggers.updateAdminPermissions, // Reuse the same logger
   adminController.updateAdminProfile
