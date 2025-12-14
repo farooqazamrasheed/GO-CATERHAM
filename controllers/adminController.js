@@ -833,7 +833,8 @@ exports.getVerifiedDrivers = async (req, res) => {
 
     const total = await Driver.countDocuments(query);
     const drivers = await Driver.find(query)
-      .populate("user", "fullName email phone")
+      .populate("user", "fullName email phone username")
+      .populate("rejectedBy", "fullName")
       .populate("documents.drivingLicenseFront.verifiedBy", "fullName")
       .populate("documents.drivingLicenseBack.verifiedBy", "fullName")
       .populate("documents.cnicFront.verifiedBy", "fullName")
@@ -887,7 +888,8 @@ exports.getUnverifiedDrivers = async (req, res) => {
 
     const total = await Driver.countDocuments(query);
     const drivers = await Driver.find(query)
-      .populate("user", "fullName email phone")
+      .populate("user", "fullName email phone username")
+      .populate("rejectedBy", "fullName")
       .populate("documents.drivingLicenseFront.verifiedBy", "fullName")
       .populate("documents.drivingLicenseBack.verifiedBy", "fullName")
       .populate("documents.cnicFront.verifiedBy", "fullName")
@@ -980,7 +982,8 @@ exports.getDrivers = async (req, res) => {
 
     const total = await Driver.countDocuments(query);
     const drivers = await Driver.find(query)
-      .populate("user", "fullName email phone")
+      .populate("user", "fullName email phone username")
+      .populate("rejectedBy", "fullName")
       .populate("documents.drivingLicenseFront.verifiedBy", "fullName")
       .populate("documents.drivingLicenseBack.verifiedBy", "fullName")
       .populate("documents.cnicFront.verifiedBy", "fullName")
@@ -1023,6 +1026,7 @@ exports.getDriverDetails = async (req, res) => {
 
     const driver = await Driver.findById(driverId)
       .populate("user", "fullName email phone username")
+      .populate("rejectedBy", "fullName")
       .populate("documents.drivingLicenseFront.verifiedBy", "fullName")
       .populate("documents.drivingLicenseBack.verifiedBy", "fullName")
       .populate("documents.cnicFront.verifiedBy", "fullName")
