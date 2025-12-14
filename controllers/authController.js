@@ -478,6 +478,7 @@ exports.login = async (req, res) => {
       const savedAmount = wallet ? wallet.balance : 0;
 
       profileInfo = {
+        riderId: profileData._id,
         onlineStatus: profileData.status,
         totalRides,
         rating: profileData.rating,

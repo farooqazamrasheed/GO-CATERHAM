@@ -110,6 +110,7 @@ router.get(
 );
 router.put(
   "/riders/:riderId/suspend",
+  parseFormData,
   checkPermission("manage_riders"),
   adminController.suspendRider
 );

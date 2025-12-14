@@ -1431,6 +1431,7 @@ exports.getRiders = async (req, res) => {
       totalRides: rideCountMap[rider._id.toString()] || 0,
       status: rider.status,
       rating: rider.rating,
+      isSuspended: rider.isSuspended,
       createdAt: rider.createdAt,
     }));
 
