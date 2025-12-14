@@ -115,10 +115,26 @@ const driverSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      enum: ["online", "offline", "busy"],
+      enum: ["online", "offline", "busy", "pending"],
       default: "offline",
     },
-    isApproved: { type: Boolean, default: false },
+    verificationStatus: {
+      type: String,
+      enum: ["unverified", "verified"],
+      default: "unverified",
+    },
+    isApproved: {
+      type: String,
+      enum: ["pending", "approved", "rejected"],
+      default: "pending",
+    },
+    rejectionCount: { type: Number, default: 0 },
+    rejectionMessage: { type: String },
+    lastRejectedAt: { type: Date },
+    rejectedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+    },
     rating: { type: Number, default: 5, min: 0, max: 5 },
     photo: {
       url: String,

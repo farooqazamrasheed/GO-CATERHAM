@@ -15,6 +15,15 @@ const parseFormData = multer().none();
 // All routes require authentication
 router.use(auth);
 
+// Driver management - create driver
+router.post(
+  "/drivers",
+  parseFormData,
+  checkPermission("create_admin"), // Reuse create_admin permission for driver creation
+  auditLoggers.createAdmin, // Reuse existing logger
+  adminController.createDriver
+);
+
 // Driver management - admin and subadmin with permission
 router.put(
   "/driver/:driverId/approve",
@@ -34,6 +43,16 @@ router.get(
   "/drivers",
   checkPermission("view_drivers"),
   adminController.getDrivers
+);
+router.get(
+  "/drivers/verified",
+  checkPermission("view_drivers"),
+  adminController.getVerifiedDrivers
+);
+router.get(
+  "/drivers/unverified",
+  checkPermission("view_drivers"),
+  adminController.getUnverifiedDrivers
 );
 router.get(
   "/drivers/:driverId",
@@ -62,6 +81,11 @@ router.delete(
   auditLoggers.deleteDriver,
   adminController.deleteDriver
 );
+router.post(
+  "/drivers/:driverId/photo",
+  checkPermission("manage_drivers"),
+  ...adminController.uploadDriverPhoto
+);
 
 // Admin status - any admin role
 router.put(
@@ -76,6 +100,23 @@ router.get(
   "/dashboard",
   checkRole("admin", "superadmin", "subadmin"),
   adminController.getDashboard
+);
+
+// Rider management - view riders
+router.get(
+  "/riders",
+  checkPermission("view_riders"),
+  adminController.getRiders
+);
+router.put(
+  "/riders/:riderId/suspend",
+  checkPermission("manage_riders"),
+  adminController.suspendRider
+);
+router.put(
+  "/riders/:riderId/unsuspend",
+  checkPermission("manage_riders"),
+  adminController.unsuspendRider
 );
 
 // Admin management - only superadmin and admin

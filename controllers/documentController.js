@@ -1,36 +1,61 @@
 const Driver = require("../models/Driver");
 const { sendSuccess, sendError } = require("../utils/responseHelper");
 const { documentUpload, documentFields } = require("../config/multerConfig");
+const multer = require("multer");
+const path = require("path");
+const fs = require("fs");
 
 // Upload document fields
 const uploadDocuments = documentUpload.fields(documentFields);
 
+// Validation middleware for document upload
+const validateDocumentUpload = async (req, res, next) => {
+  try {
+    const driverId = req.params.driverId;
+    const userId = req.user.id;
+
+    // Validate driverId format
+    if (!driverId || !/^[0-9a-fA-F]{24}$/.test(driverId)) {
+      return sendError(res, "Invalid driver ID format", 400);
+    }
+
+    // Find driver profile
+    const driver = await Driver.findById(driverId);
+    if (!driver) {
+      return sendError(res, "Driver not found", 404);
+    }
+
+    // Check if user is admin/superadmin or owns this driver profile
+    const isOwner = driver.user.toString() === userId;
+    const isAdmin = req.user.role === "admin" || req.user.role === "superadmin";
+
+    if (!isOwner && !isAdmin) {
+      return sendError(
+        res,
+        "You can only upload documents for your own account",
+        403
+      );
+    }
+
+    // Attach driver to req for later use
+    req.driver = driver;
+    req.isOwner = isOwner;
+    req.isAdmin = isAdmin;
+
+    next();
+  } catch (error) {
+    console.error("Document upload validation error:", error);
+    return sendError(res, "Server error during validation", 500);
+  }
+};
+
 // Upload driver documents
 exports.uploadDriverDocuments = [
+  validateDocumentUpload,
   uploadDocuments,
   async (req, res) => {
     try {
-      const driverId = req.params.driverId;
-      const userId = req.user.id;
-
-      // Find driver profile
-      const driver = await Driver.findOne({ user: userId });
-      if (!driver) {
-        return sendError(res, "Driver profile not found", 404);
-      }
-
-      // Check if driver owns this profile or is admin
-      if (
-        driver._id.toString() !== driverId &&
-        req.user.role !== "admin" &&
-        req.user.role !== "superadmin"
-      ) {
-        return sendError(
-          res,
-          "You can only upload documents for your own account",
-          403
-        );
-      }
+      const driver = req.driver;
 
       const uploadedDocuments = [];
       const documentFields = [
@@ -49,6 +74,30 @@ exports.uploadDriverDocuments = [
         if (req.files && req.files[field] && req.files[field][0]) {
           const file = req.files[field][0];
           const fileUrl = `/uploads/documents/${file.filename}`;
+
+          // Delete old file if exists
+          if (
+            driver.documents &&
+            driver.documents[field] &&
+            driver.documents[field].url
+          ) {
+            const oldFilePath = path.join(
+              __dirname,
+              "../uploads/documents",
+              path.basename(driver.documents[field].url)
+            );
+            if (fs.existsSync(oldFilePath)) {
+              try {
+                fs.unlinkSync(oldFilePath);
+                console.log(`Deleted old document: ${oldFilePath}`);
+              } catch (error) {
+                console.error(
+                  `Failed to delete old document ${oldFilePath}:`,
+                  error
+                );
+              }
+            }
+          }
 
           // Update driver document info
           if (!driver.documents) {
@@ -110,17 +159,16 @@ exports.getDriverDocuments = async (req, res) => {
     const driverId = req.params.driverId;
     const userId = req.user.id;
 
-    const driver = await Driver.findOne({ user: userId });
+    const driver = await Driver.findById(driverId);
     if (!driver) {
-      return sendError(res, "Driver profile not found", 404);
+      return sendError(res, "Driver not found", 404);
     }
 
     // Check permissions
-    if (
-      driver._id.toString() !== driverId &&
-      req.user.role !== "admin" &&
-      req.user.role !== "superadmin"
-    ) {
+    const isOwner = driver.user.toString() === userId;
+    const isAdmin = req.user.role === "admin" || req.user.role === "superadmin";
+
+    if (!isOwner && !isAdmin) {
       return sendError(res, "You can only view your own documents", 403);
     }
 
@@ -210,17 +258,16 @@ exports.deleteDriverDocument = async (req, res) => {
     const { driverId, documentType } = req.params;
     const userId = req.user.id;
 
-    const driver = await Driver.findOne({ user: userId });
+    const driver = await Driver.findById(driverId);
     if (!driver) {
-      return sendError(res, "Driver profile not found", 404);
+      return sendError(res, "Driver not found", 404);
     }
 
     // Check permissions
-    if (
-      driver._id.toString() !== driverId &&
-      req.user.role !== "admin" &&
-      req.user.role !== "superadmin"
-    ) {
+    const isOwner = driver.user.toString() === userId;
+    const isAdmin = req.user.role === "admin" || req.user.role === "superadmin";
+
+    if (!isOwner && !isAdmin) {
       return sendError(res, "You can only manage your own documents", 403);
     }
 

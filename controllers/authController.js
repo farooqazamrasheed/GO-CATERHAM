@@ -394,21 +394,39 @@ exports.login = async (req, res) => {
     // Check if the specific role collection exists and set status to online
     let profileData = {};
     if (user.role === "rider") {
-      const rider = await Rider.findOneAndUpdate(
-        { user: user._id },
-        { status: "online" },
-        { new: true }
-      );
+      const rider = await Rider.findOne({ user: user._id });
       if (!rider) return sendError(res, "Rider profile not found", 404);
-      profileData = rider;
-    } else if (user.role === "driver") {
-      const driver = await Driver.findOneAndUpdate(
+
+      // Check if rider is suspended
+      if (rider.isSuspended) {
+        return sendError(
+          res,
+          rider.suspensionMessage ||
+            "Your account has been suspended by admin. Please contact admin to resolve this issue.",
+          403
+        );
+      }
+
+      // Update status to online if not suspended
+      const updatedRider = await Rider.findOneAndUpdate(
         { user: user._id },
         { status: "online" },
         { new: true }
       );
+      profileData = updatedRider;
+    } else if (user.role === "driver") {
+      // Check if driver is approved
+      const driver = await Driver.findOne({ user: user._id });
       if (!driver) return sendError(res, "Driver profile not found", 404);
-      profileData = driver;
+
+      // Set status based on approval
+      const newStatus = driver.isApproved === "approved" ? "online" : "pending";
+      const updatedDriver = await Driver.findOneAndUpdate(
+        { user: user._id },
+        { status: newStatus },
+        { new: true }
+      );
+      profileData = updatedDriver;
     } else if (user.role === "admin" || user.role === "superadmin") {
       const admin = await Admin.findOneAndUpdate(
         { user: user._id },
@@ -464,6 +482,8 @@ exports.login = async (req, res) => {
         totalRides,
         rating: profileData.rating,
         savedAmount,
+        isSuspended: profileData.isSuspended,
+        suspensionMessage: profileData.suspensionMessage,
       };
     } else if (role === "driver") {
       // Calculate today's earnings
@@ -486,12 +506,20 @@ exports.login = async (req, res) => {
       const earnings = todaysEarnings.length > 0 ? todaysEarnings[0].total : 0;
 
       profileInfo = {
+        id: profileData._id,
+        userId: profileData.user,
+        photo: profileData.photo,
+        documents: profileData.documents,
         onlineStatus: profileData.status,
         vehicleDetails: {
           vehicle: profileData.vehicle,
           numberPlate: profileData.numberPlateOfVehicle,
         },
         todaysEarnings: earnings,
+        verificationStatus: profileData.verificationStatus,
+        isApproved: profileData.isApproved,
+        rejectionCount: profileData.rejectionCount,
+        rejectionMessage: profileData.rejectionMessage,
       };
     } else if (role === "admin" || role === "superadmin") {
       // Admin/Superadmin profile - basic info only

@@ -8,6 +8,7 @@ const Ride = require("../models/Ride");
 const Payment = require("../models/Payment");
 const { sendSuccess, sendError } = require("../utils/responseHelper");
 const { auditLoggers } = require("../middlewares/audit");
+const { driverPhotoUpload } = require("../config/multerConfig");
 const bcrypt = require("bcryptjs");
 
 // Approve or reject driver
@@ -25,7 +26,49 @@ exports.approveDriver = async (req, res, next) => {
       return sendError(res, "Driver not found", 404);
     }
 
-    driver.isApproved = true;
+    // Check if driver has uploaded required documents before approval
+    const requiredDocuments = [
+      "drivingLicenseFront",
+      "drivingLicenseBack",
+      "cnicFront",
+      "cnicBack",
+      "vehicleRegistration",
+      "insuranceCertificate",
+      "vehiclePhotoFront",
+      "vehiclePhotoSide",
+    ];
+
+    const uploadedDocuments = requiredDocuments.filter(
+      (doc) =>
+        driver.documents && driver.documents[doc] && driver.documents[doc].url
+    );
+
+    if (uploadedDocuments.length < requiredDocuments.length) {
+      return sendError(
+        res,
+        `Driver must upload all required documents before approval. Uploaded: ${uploadedDocuments.length}/${requiredDocuments.length}`,
+        400
+      );
+    }
+
+    driver.isApproved = "approved";
+    driver.verificationStatus = "verified";
+    driver.status = "online"; // Set to online when approved
+
+    // Clear rejection data on approval
+    driver.rejectionMessage = undefined;
+    driver.lastRejectedAt = undefined;
+    driver.rejectedBy = undefined;
+
+    // Set all documents as verified
+    requiredDocuments.forEach((field) => {
+      if (driver.documents && driver.documents[field]) {
+        driver.documents[field].verified = true;
+        driver.documents[field].verifiedAt = new Date();
+        driver.documents[field].verifiedBy = req.user.id;
+      }
+    });
+
     await driver.save();
 
     // Set user isVerified to true for admin verification
@@ -39,6 +82,8 @@ exports.approveDriver = async (req, res, next) => {
 
 exports.rejectDriver = async (req, res, next) => {
   try {
+    const { rejectionMessage } = req.body;
+
     // Try to find by driver ID first, then by user ID
     let driver = await Driver.findById(req.params.driverId);
 
@@ -51,12 +96,131 @@ exports.rejectDriver = async (req, res, next) => {
       return sendError(res, "Driver not found", 404);
     }
 
-    driver.isApproved = false;
+    // Update rejection details
+    driver.isApproved = "rejected";
+    driver.status = "pending"; // Keep pending for re-application
+    driver.verificationStatus = "unverified"; // Reset verification
+    driver.rejectionCount += 1;
+    driver.rejectionMessage =
+      rejectionMessage ||
+      "Your application was rejected by admin. Please review and resubmit your documents.";
+    driver.lastRejectedAt = new Date();
+    driver.rejectedBy = req.user.id;
+
     await driver.save();
 
-    sendSuccess(res, { driver }, "Driver rejected", 200);
+    sendSuccess(
+      res,
+      {
+        driver,
+        message:
+          "Driver rejected successfully. Driver can reapply with updated documents.",
+      },
+      "Driver rejected",
+      200
+    );
   } catch (err) {
     next(err);
+  }
+};
+
+// Create a new driver
+exports.createDriver = async (req, res) => {
+  try {
+    const {
+      username,
+      fullName,
+      email,
+      phone,
+      password,
+      vehicle,
+      licenseNumber,
+      vehicleModel,
+      vehicleYear,
+      vehicleColor,
+      vehicleType,
+      numberPlateOfVehicle,
+    } = req.body;
+    const createdBy = req.user.id;
+
+    // Validate required fields
+    if (!username || !fullName || !email || !password || !vehicle) {
+      return sendError(
+        res,
+        "username, fullName, email, password, and vehicle are required",
+        400
+      );
+    }
+
+    // Validate phone format (11 digits for UK/Surrey)
+    const phoneRegex = /^\d{11}$/;
+    if (phone && !phoneRegex.test(phone)) {
+      return sendError(res, "Phone must be exactly 11 digits", 400);
+    }
+
+    // Check if email already exists
+    const existingUser = await User.findOne({ email });
+    if (existingUser) {
+      return sendError(res, "Email already registered", 409);
+    }
+
+    // Check if username already exists
+    const existingUsername = await User.findOne({
+      username: username.toLowerCase(),
+    });
+    if (existingUsername) {
+      return sendError(res, "Username already taken", 409);
+    }
+
+    // Create user
+    const user = await User.create({
+      username: username.toLowerCase(),
+      fullName,
+      email: email.toLowerCase(),
+      phone,
+      password,
+      role: "driver", // Always driver
+      isVerified: false, // Like public signup - needs admin approval
+    });
+
+    // Create driver profile
+    const driverData = {
+      user: user._id,
+      vehicle,
+      isApproved: "pending", // Pending approval status
+      status: "pending", // Pending approval status
+      verificationStatus: "unverified", // Unverified until approved
+    };
+
+    // Add optional fields if provided
+    if (licenseNumber) driverData.licenseNumber = licenseNumber;
+    if (vehicleModel) driverData.vehicleModel = vehicleModel;
+    if (vehicleYear) driverData.vehicleYear = vehicleYear;
+    if (vehicleColor) driverData.vehicleColor = vehicleColor;
+    if (vehicleType) driverData.vehicleType = vehicleType;
+    if (numberPlateOfVehicle)
+      driverData.numberPlateOfVehicle = numberPlateOfVehicle;
+
+    const driver = await Driver.create(driverData);
+
+    sendSuccess(
+      res,
+      {
+        user: {
+          id: user._id,
+          fullName: user.fullName,
+          email: user.email,
+          role: user.role,
+          username: user.username,
+        },
+        driver,
+      },
+      "Driver created successfully",
+      201
+    );
+  } catch (err) {
+    console.error("Create driver error:", err);
+    sendError(res, "Failed to create driver", 500);
   }
 };
 
@@ -651,6 +815,114 @@ exports.deleteAdmin = async (req, res) => {
 
 // Driver Management Functions
 
+// Get verified drivers
+exports.getVerifiedDrivers = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const userAdmin = await Admin.findOne({ user: userId });
+
+    if (!userAdmin) {
+      return sendError(res, "Admin profile not found", 404);
+    }
+
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+    const skip = (page - 1) * limit;
+
+    const query = { verificationStatus: "verified" };
+
+    const total = await Driver.countDocuments(query);
+    const drivers = await Driver.find(query)
+      .populate("user", "fullName email phone")
+      .populate("documents.drivingLicenseFront.verifiedBy", "fullName")
+      .populate("documents.drivingLicenseBack.verifiedBy", "fullName")
+      .populate("documents.cnicFront.verifiedBy", "fullName")
+      .populate("documents.cnicBack.verifiedBy", "fullName")
+      .populate("documents.vehicleRegistration.verifiedBy", "fullName")
+      .populate("documents.insuranceCertificate.verifiedBy", "fullName")
+      .populate("documents.vehiclePhotoFront.verifiedBy", "fullName")
+      .populate("documents.vehiclePhotoSide.verifiedBy", "fullName")
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit);
+
+    const totalPages = Math.ceil(total / limit);
+
+    sendSuccess(
+      res,
+      {
+        drivers,
+        pagination: {
+          currentPage: page,
+          totalPages,
+          totalDrivers: total,
+          hasNext: page < totalPages,
+          hasPrev: page > 1,
+        },
+      },
+      "Verified drivers retrieved successfully",
+      200
+    );
+  } catch (err) {
+    console.error("Get verified drivers error:", err);
+    sendError(res, "Failed to retrieve verified drivers", 500);
+  }
+};
+
+// Get unverified drivers
+exports.getUnverifiedDrivers = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const userAdmin = await Admin.findOne({ user: userId });
+
+    if (!userAdmin) {
+      return sendError(res, "Admin profile not found", 404);
+    }
+
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+    const skip = (page - 1) * limit;
+
+    const query = { verificationStatus: "unverified" };
+
+    const total = await Driver.countDocuments(query);
+    const drivers = await Driver.find(query)
+      .populate("user", "fullName email phone")
+      .populate("documents.drivingLicenseFront.verifiedBy", "fullName")
+      .populate("documents.drivingLicenseBack.verifiedBy", "fullName")
+      .populate("documents.cnicFront.verifiedBy", "fullName")
+      .populate("documents.cnicBack.verifiedBy", "fullName")
+      .populate("documents.vehicleRegistration.verifiedBy", "fullName")
+      .populate("documents.insuranceCertificate.verifiedBy", "fullName")
+      .populate("documents.vehiclePhotoFront.verifiedBy", "fullName")
+      .populate("documents.vehiclePhotoSide.verifiedBy", "fullName")
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit);
+
+    const totalPages = Math.ceil(total / limit);
+
+    sendSuccess(
+      res,
+      {
+        drivers,
+        pagination: {
+          currentPage: page,
+          totalPages,
+          totalDrivers: total,
+          hasNext: page < totalPages,
+          hasPrev: page > 1,
+        },
+      },
+      "Unverified drivers retrieved successfully",
+      200
+    );
+  } catch (err) {
+    console.error("Get unverified drivers error:", err);
+    sendError(res, "Failed to retrieve unverified drivers", 500);
+  }
+};
+
 // Get all drivers with pagination and filtering
 exports.getDrivers = async (req, res) => {
   try {
@@ -669,8 +941,8 @@ exports.getDrivers = async (req, res) => {
     let query = {};
 
     // Filter by approval status
-    if (req.query.isApproved !== undefined) {
-      query.isApproved = req.query.isApproved === "true";
+    if (req.query.isApproved) {
+      query.isApproved = req.query.isApproved; // Can be "pending", "approved", "rejected"
     }
 
     // Filter by status
@@ -681,6 +953,11 @@ exports.getDrivers = async (req, res) => {
     // Filter by vehicle type
     if (req.query.vehicleType) {
       query.vehicleType = req.query.vehicleType;
+    }
+
+    // Filter by verification status
+    if (req.query.verificationStatus) {
+      query.verificationStatus = req.query.verificationStatus;
     }
 
     // Search by name, email, or license number
@@ -838,8 +1115,16 @@ exports.updateDriverProfile = async (req, res) => {
     if (numberPlateOfVehicle !== undefined)
       updateFields.numberPlateOfVehicle = numberPlateOfVehicle;
     if (rating !== undefined) updateFields.rating = rating;
-    if (isApproved !== undefined && currentAdmin.adminType !== "subadmin")
+    if (isApproved !== undefined && currentAdmin.adminType !== "subadmin") {
+      if (!["pending", "approved", "rejected"].includes(isApproved)) {
+        return sendError(
+          res,
+          "isApproved must be 'pending', 'approved', or 'rejected'",
+          400
+        );
+      }
       updateFields.isApproved = isApproved;
+    }
     if (status !== undefined) updateFields.status = status;
 
     // Check if any updates were provided
@@ -942,6 +1227,233 @@ exports.manageDriverStatus = async (req, res) => {
   } catch (err) {
     console.error("Manage driver status error:", err);
     sendError(res, "Failed to manage driver status", 500);
+  }
+};
+
+// Upload driver photo
+exports.uploadDriverPhoto = [
+  driverPhotoUpload.single("photo"),
+  async (req, res) => {
+    try {
+      if (!req.file) {
+        return sendError(res, "No file uploaded", 400);
+      }
+
+      const { driverId } = req.params;
+
+      const driver = await Driver.findById(driverId);
+      if (!driver) {
+        return sendError(res, "Driver not found", 404);
+      }
+
+      // Delete old photo if exists
+      if (driver.photo && driver.photo.url) {
+        const fs = require("fs");
+        const path = require("path");
+        const oldPath = path.join(
+          __dirname,
+          "../uploads/drivers",
+          path.basename(driver.photo.url)
+        );
+        if (fs.existsSync(oldPath)) {
+          fs.unlinkSync(oldPath);
+        }
+      }
+
+      // Generate URL for the uploaded file
+      const photoUrl = `/uploads/drivers/${req.file.filename}`;
+      driver.photo = {
+        url: photoUrl,
+        uploadedAt: new Date(),
+        filename: req.file.filename,
+        mimetype: req.file.mimetype,
+        size: req.file.size,
+      };
+      await driver.save();
+
+      sendSuccess(
+        res,
+        {
+          photo: driver.photo,
+          message: "Driver photo uploaded successfully",
+        },
+        "Driver photo updated successfully",
+        200
+      );
+    } catch (error) {
+      console.error("Upload driver photo error:", error);
+      sendError(res, "Failed to upload driver photo", 500);
+    }
+  },
+];
+
+// Suspend rider
+exports.suspendRider = async (req, res) => {
+  try {
+    const { riderId } = req.params;
+    const { suspensionMessage } = req.body;
+
+    const rider = await Rider.findById(riderId);
+    if (!rider) {
+      return sendError(res, "Rider not found", 404);
+    }
+
+    rider.isSuspended = true;
+    rider.status = "suspended";
+    rider.suspensionMessage =
+      suspensionMessage ||
+      "Your account has been suspended by admin. Please contact admin to resolve this issue.";
+    rider.suspendedAt = new Date();
+    rider.suspendedBy = req.user.id;
+
+    await rider.save();
+
+    sendSuccess(
+      res,
+      {
+        rider: {
+          id: rider._id,
+          isSuspended: rider.isSuspended,
+          status: rider.status,
+          suspensionMessage: rider.suspensionMessage,
+          suspendedAt: rider.suspendedAt,
+        },
+      },
+      "Rider suspended successfully",
+      200
+    );
+  } catch (err) {
+    console.error("Suspend rider error:", err);
+    sendError(res, "Failed to suspend rider", 500);
+  }
+};
+
+// Unsuspend rider
+exports.unsuspendRider = async (req, res) => {
+  try {
+    const { riderId } = req.params;
+
+    const rider = await Rider.findById(riderId);
+    if (!rider) {
+      return sendError(res, "Rider not found", 404);
+    }
+
+    rider.isSuspended = false;
+    rider.status = "offline"; // Set to offline, rider can go online themselves
+    rider.suspensionMessage = undefined;
+    rider.suspendedAt = undefined;
+    rider.suspendedBy = undefined;
+
+    await rider.save();
+
+    sendSuccess(
+      res,
+      {
+        rider: {
+          id: rider._id,
+          isSuspended: rider.isSuspended,
+          status: rider.status,
+        },
+      },
+      "Rider unsuspended successfully",
+      200
+    );
+  } catch (err) {
+    console.error("Unsuspend rider error:", err);
+    sendError(res, "Failed to unsuspend rider", 500);
+  }
+};
+
+// Get all riders with pagination and filtering
+exports.getRiders = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const userAdmin = await Admin.findOne({ user: userId });
+
+    if (!userAdmin) {
+      return sendError(res, "Admin profile not found", 404);
+    }
+
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+    const skip = (page - 1) * limit;
+
+    // Build filter query
+    let query = {};
+
+    // Filter by status
+    if (req.query.status) {
+      query.status = req.query.status;
+    }
+
+    // Search by name, email, or phone
+    if (req.query.search) {
+      const searchRegex = new RegExp(req.query.search, "i");
+      query.$or = [
+        { "user.fullName": searchRegex },
+        { "user.email": searchRegex },
+        { "user.phone": searchRegex },
+      ];
+    }
+
+    // Get total count
+    const total = await Rider.countDocuments(query);
+
+    // Get riders with user details and ride counts
+    const riders = await Rider.find(query)
+      .populate("user", "fullName email phone")
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .lean();
+
+    // Get ride counts for each rider
+    const riderIds = riders.map((rider) => rider._id);
+    const rideCounts = await Ride.aggregate([
+      { $match: { rider: { $in: riderIds } } },
+      { $group: { _id: "$rider", totalRides: { $sum: 1 } } },
+    ]);
+
+    // Create a map of rider ID to total rides
+    const rideCountMap = {};
+    rideCounts.forEach((count) => {
+      rideCountMap[count._id.toString()] = count.totalRides;
+    });
+
+    // Format response
+    const formattedRiders = riders.map((rider) => ({
+      riderId: rider._id,
+      name: rider.user?.fullName || "N/A",
+      contact: {
+        email: rider.user?.email || "N/A",
+        phone: rider.user?.phone || "N/A",
+      },
+      totalRides: rideCountMap[rider._id.toString()] || 0,
+      status: rider.status,
+      rating: rider.rating,
+      createdAt: rider.createdAt,
+    }));
+
+    const totalPages = Math.ceil(total / limit);
+
+    sendSuccess(
+      res,
+      {
+        riders: formattedRiders,
+        pagination: {
+          currentPage: page,
+          totalPages,
+          totalRiders: total,
+          hasNext: page < totalPages,
+          hasPrev: page > 1,
+        },
+      },
+      "Riders retrieved successfully",
+      200
+    );
+  } catch (err) {
+    console.error("Get riders error:", err);
+    sendError(res, "Failed to retrieve riders", 500);
   }
 };
 

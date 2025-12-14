@@ -20,8 +20,15 @@ const riderSchema = new mongoose.Schema(
     rating: { type: Number, default: 5, min: 0, max: 5 },
     status: {
       type: String,
-      enum: ["online", "offline"],
+      enum: ["online", "offline", "suspended"],
       default: "offline",
+    },
+    isSuspended: { type: Boolean, default: false },
+    suspensionMessage: { type: String },
+    suspendedAt: { type: Date },
+    suspendedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
     },
     // Rewards and points system
     points: {
