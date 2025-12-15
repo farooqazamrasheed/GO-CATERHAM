@@ -155,7 +155,7 @@ exports.rejectDriver = async (req, res, next) => {
 
     // Update rejection details
     driver.isApproved = "rejected";
-    driver.status = "pending"; // Keep pending for re-application
+    driver.status = "offline"; // Set to offline for rejected drivers
     driver.verificationStatus = "unverified"; // Reset verification
     driver.rejectionCount += 1;
     driver.rejectionMessage = rejectionMessage;
@@ -202,7 +202,7 @@ exports.rejectDriverCustom = async (req, res, next) => {
 
     // Update rejection details
     driver.isApproved = "rejected";
-    driver.status = "pending"; // Keep pending for re-application
+    driver.status = "offline"; // Set to offline for rejected drivers
     driver.verificationStatus = "unverified"; // Reset verification
     driver.rejectionCount += 1;
     driver.rejectionMessage = rejectionMessage;
@@ -352,7 +352,7 @@ exports.createDriver = async (req, res) => {
       user: user._id,
       vehicle,
       isApproved: "pending", // Pending approval status
-      status: "pending", // Pending approval status
+      status: "offline", // Offline until approved
       verificationStatus: "unverified", // Unverified until approved
       photo: null,
     };

@@ -39,6 +39,7 @@ router.put(
 );
 router.put(
   "/driver/:driverId/reject-custom",
+  parseFormData,
   checkPermission("reject_driver"),
   auditLoggers.rejectDriver,
   adminController.rejectDriverCustom

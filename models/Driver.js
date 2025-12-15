@@ -115,7 +115,7 @@ const driverSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      enum: ["online", "offline", "busy", "pending"],
+      enum: ["online", "offline", "busy"],
       default: "offline",
     },
     verificationStatus: {
