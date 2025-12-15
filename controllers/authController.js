@@ -12,6 +12,7 @@ const {
   generateRefreshToken,
   verifyToken,
 } = require("../utils/jwt");
+const notificationService = require("../services/notificationService");
 
 // ================= SIGNUP =================
 exports.signup = async (req, res) => {
@@ -197,6 +198,7 @@ exports.signup = async (req, res) => {
           vehicleColor,
           vehicleType: vehicleType || "sedan",
           numberPlateOfVehicle,
+          photo: null,
         });
 
         // Calculate estimated approval time (24-48 hours from now)
@@ -328,6 +330,14 @@ exports.signup = async (req, res) => {
         console.error("Email sending failed:", emailError.message);
         // Continue without failing the signup
       }
+    }
+
+    // Send welcome notification
+    try {
+      await notificationService.sendWelcomeEmail(user, role);
+    } catch (notificationError) {
+      console.error("Welcome notification failed:", notificationError.message);
+      // Continue without failing the signup
     }
 
     // Generate tokens for automatic login

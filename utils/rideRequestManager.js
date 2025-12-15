@@ -1,5 +1,6 @@
 const Ride = require("../models/Ride");
 const Driver = require("../models/Driver");
+const socketService = require("../services/socketService");
 
 /**
  * Ride Request Manager - Handles automatic rejection and real-time delivery
@@ -59,8 +60,20 @@ class RideRequestManager {
 
       console.log(`Ride ${rideId} accepted by driver ${driverId}`);
 
-      // TODO: Send real-time notification to rider
-      // TODO: Send real-time notification to other drivers (ride taken)
+      // Send real-time notification to rider
+      socketService.notifyDriverAssigned(
+        ride.rider.toString(),
+        ride.driver,
+        ride
+      );
+
+      // Send real-time notification to other drivers (ride taken)
+      const otherDrivers = this.requestQueue.get(rideId) || [];
+      otherDrivers.forEach((driverId) => {
+        if (driverId !== driverId) {
+          socketService.notifyRideTaken(driverId, rideId);
+        }
+      });
 
       return ride;
     } catch (error) {
@@ -95,7 +108,8 @@ class RideRequestManager {
         `Ride ${rideId} rejected by driver ${driverId}, offering to next driver ${nextDriverId}`
       );
 
-      // TODO: Send real-time notification to next driver
+      // Send real-time notification to next driver
+      socketService.notifyRideRequest(nextDriverId, { _id: rideId });
     } catch (error) {
       console.error("Error rejecting ride:", error);
       throw error;
@@ -129,7 +143,12 @@ class RideRequestManager {
         `Ride ${rideId} automatically rejected - no driver response within 15 seconds`
       );
 
-      // TODO: Send notification to rider about cancellation
+      // Send notification to rider about cancellation
+      socketService.notifyRideCancelled(
+        ride.rider.toString(),
+        "No driver available",
+        ride
+      );
 
       return ride;
     } catch (error) {

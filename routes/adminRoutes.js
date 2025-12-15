@@ -37,6 +37,18 @@ router.put(
   auditLoggers.rejectDriver,
   adminController.rejectDriver
 );
+router.put(
+  "/driver/:driverId/reject-custom",
+  checkPermission("reject_driver"),
+  auditLoggers.rejectDriver,
+  adminController.rejectDriverCustom
+);
+router.put(
+  "/driver/:driverId/document/:documentType/verify",
+  checkPermission("approve_driver"),
+  auditLoggers.approveDriver, // Reuse existing logger
+  adminController.verifyDocument
+);
 
 // Full driver management - view drivers
 router.get(

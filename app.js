@@ -17,6 +17,7 @@ const permissionRoutes = require("./routes/permissionRoutes");
 const documentRoutes = require("./routes/documentRoutes");
 const rewardsRoutes = require("./routes/rewardsRoutes");
 const profileRoutes = require("./routes/profileRoutes");
+const riderLiveLocationRoutes = require("./routes/riderLiveLocationRoutes");
 
 const app = express();
 
@@ -41,6 +42,7 @@ app.use("/api/v1/permissions", permissionRoutes);
 app.use("/api/v1/documents", documentRoutes);
 app.use("/api/v1/rewards", rewardsRoutes);
 app.use("/api/v1/riders/profile", profileRoutes);
+app.use("/api/v1/riders/location", riderLiveLocationRoutes);
 
 // Serve uploaded files statically
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));

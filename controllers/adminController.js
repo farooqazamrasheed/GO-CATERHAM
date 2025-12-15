@@ -10,6 +10,7 @@ const { sendSuccess, sendError } = require("../utils/responseHelper");
 const { auditLoggers } = require("../middlewares/audit");
 const { driverPhotoUpload } = require("../config/multerConfig");
 const bcrypt = require("bcryptjs");
+const notificationService = require("../services/notificationService");
 
 // Approve or reject driver
 exports.approveDriver = async (req, res, next) => {
@@ -26,7 +27,7 @@ exports.approveDriver = async (req, res, next) => {
       return sendError(res, "Driver not found", 404);
     }
 
-    // Check if driver has uploaded required documents before approval
+    // Check if driver has uploaded and verified all required documents before approval
     const requiredDocuments = [
       "drivingLicenseFront",
       "drivingLicenseBack",
@@ -51,6 +52,21 @@ exports.approveDriver = async (req, res, next) => {
       );
     }
 
+    const verifiedDocuments = requiredDocuments.filter(
+      (doc) =>
+        driver.documents &&
+        driver.documents[doc] &&
+        driver.documents[doc].verified
+    );
+
+    if (verifiedDocuments.length < requiredDocuments.length) {
+      return sendError(
+        res,
+        `All documents must be verified by admin before approval. Verified: ${verifiedDocuments.length}/${requiredDocuments.length}`,
+        400
+      );
+    }
+
     driver.isApproved = "approved";
     driver.verificationStatus = "verified";
     driver.status = "online"; // Set to online when approved
@@ -60,19 +76,23 @@ exports.approveDriver = async (req, res, next) => {
     driver.lastRejectedAt = undefined;
     driver.rejectedBy = undefined;
 
-    // Set all documents as verified
-    requiredDocuments.forEach((field) => {
-      if (driver.documents && driver.documents[field]) {
-        driver.documents[field].verified = true;
-        driver.documents[field].verifiedAt = new Date();
-        driver.documents[field].verifiedBy = req.user.id;
-      }
-    });
-
     await driver.save();
 
     // Set user isVerified to true for admin verification
-    await User.findByIdAndUpdate(driver.user, { isVerified: true });
+    const user = await User.findByIdAndUpdate(driver.user, {
+      isVerified: true,
+    });
+
+    // Send approval notification
+    try {
+      await notificationService.sendDriverApprovedNotification(user);
+    } catch (notificationError) {
+      console.error(
+        "Driver approval notification failed:",
+        notificationError.message
+      );
+      // Continue without failing the approval
+    }
 
     sendSuccess(res, { driver }, "Driver approved", 200);
   } catch (err) {
@@ -82,7 +102,91 @@ exports.approveDriver = async (req, res, next) => {
 
 exports.rejectDriver = async (req, res, next) => {
   try {
+    // Try to find by driver ID first, then by user ID
+    let driver = await Driver.findById(req.params.driverId);
+
+    if (!driver) {
+      // If not found by driver ID, try to find by user ID
+      driver = await Driver.findOne({ user: req.params.driverId });
+    }
+
+    if (!driver) {
+      return sendError(res, "Driver not found", 404);
+    }
+
+    const requiredDocuments = [
+      "drivingLicenseFront",
+      "drivingLicenseBack",
+      "cnicFront",
+      "cnicBack",
+      "vehicleRegistration",
+      "insuranceCertificate",
+      "vehiclePhotoFront",
+      "vehiclePhotoSide",
+    ];
+
+    // Check verification status of documents
+    const allDocumentsUploaded = requiredDocuments.every(
+      (doc) =>
+        driver.documents && driver.documents[doc] && driver.documents[doc].url
+    );
+
+    const allDocumentsVerified = requiredDocuments.every(
+      (doc) =>
+        driver.documents &&
+        driver.documents[doc] &&
+        driver.documents[doc].verified
+    );
+
+    let rejectionMessage = "Your application was rejected by admin.";
+
+    if (!allDocumentsUploaded) {
+      rejectionMessage =
+        "Your application was rejected because not all required documents were uploaded. Please upload all required documents and reapply.";
+    } else if (!allDocumentsVerified) {
+      // Find unverified documents
+      const unverifiedDocs = requiredDocuments.filter(
+        (doc) => !driver.documents[doc].verified
+      );
+      rejectionMessage = `Your application was rejected because the following documents are not verified: ${unverifiedDocs.join(
+        ", "
+      )}. Please upload verified copies of these documents and reapply.`;
+    }
+
+    // Update rejection details
+    driver.isApproved = "rejected";
+    driver.status = "pending"; // Keep pending for re-application
+    driver.verificationStatus = "unverified"; // Reset verification
+    driver.rejectionCount += 1;
+    driver.rejectionMessage = rejectionMessage;
+    driver.lastRejectedAt = new Date();
+    driver.rejectedBy = req.user.id;
+
+    await driver.save();
+
+    sendSuccess(
+      res,
+      {
+        driver,
+        message:
+          "Driver rejected successfully. Driver can reapply with updated documents.",
+      },
+      "Driver rejected",
+      200
+    );
+  } catch (err) {
+    next(err);
+  }
+};
+
+// Reject driver without document verification check (custom rejection)
+exports.rejectDriverCustom = async (req, res, next) => {
+  try {
     const { rejectionMessage } = req.body;
+
+    if (!rejectionMessage) {
+      return sendError(res, "Rejection message is required", 400);
+    }
 
     // Try to find by driver ID first, then by user ID
     let driver = await Driver.findById(req.params.driverId);
@@ -101,9 +205,7 @@ exports.rejectDriver = async (req, res, next) => {
     driver.status = "pending"; // Keep pending for re-application
     driver.verificationStatus = "unverified"; // Reset verification
     driver.rejectionCount += 1;
-    driver.rejectionMessage =
-      rejectionMessage ||
-      "Your application was rejected by admin. Please review and resubmit your documents.";
+    driver.rejectionMessage = rejectionMessage;
     driver.lastRejectedAt = new Date();
     driver.rejectedBy = req.user.id;
 
@@ -113,10 +215,72 @@ exports.rejectDriver = async (req, res, next) => {
       res,
       {
         driver,
-        message:
-          "Driver rejected successfully. Driver can reapply with updated documents.",
+        message: "Driver rejected successfully with custom message.",
       },
       "Driver rejected",
+      200
+    );
+  } catch (err) {
+    next(err);
+  }
+};
+
+// Verify individual document
+exports.verifyDocument = async (req, res, next) => {
+  try {
+    const { driverId, documentType } = req.params;
+
+    // Validate document type
+    const validDocumentTypes = [
+      "drivingLicenseFront",
+      "drivingLicenseBack",
+      "cnicFront",
+      "cnicBack",
+      "vehicleRegistration",
+      "insuranceCertificate",
+      "vehiclePhotoFront",
+      "vehiclePhotoSide",
+    ];
+
+    if (!validDocumentTypes.includes(documentType)) {
+      return sendError(res, "Invalid document type", 400);
+    }
+
+    // Try to find by driver ID first, then by user ID
+    let driver = await Driver.findById(driverId);
+
+    if (!driver) {
+      // If not found by driver ID, try to find by user ID
+      driver = await Driver.findOne({ user: driverId });
+    }
+
+    if (!driver) {
+      return sendError(res, "Driver not found", 404);
+    }
+
+    // Check if document exists
+    if (
+      !driver.documents ||
+      !driver.documents[documentType] ||
+      !driver.documents[documentType].url
+    ) {
+      return sendError(res, "Document not uploaded", 400);
+    }
+
+    // Update document verification
+    driver.documents[documentType].verified = true;
+    driver.documents[documentType].verifiedAt = new Date();
+    driver.documents[documentType].verifiedBy = req.user.id;
+
+    await driver.save();
+
+    sendSuccess(
+      res,
+      {
+        driver,
+        verifiedDocument: documentType,
+      },
+      "Document verified successfully",
       200
     );
   } catch (err) {
@@ -190,6 +354,7 @@ exports.createDriver = async (req, res) => {
       isApproved: "pending", // Pending approval status
       status: "pending", // Pending approval status
       verificationStatus: "unverified", // Unverified until approved
+      photo: null,
     };
 
     // Add optional fields if provided

@@ -6,6 +6,8 @@ const FareEstimate = require("../models/FareEstimate");
 const LiveLocation = require("../models/LiveLocation");
 const { sendSuccess, sendError } = require("../utils/responseHelper");
 const rideRequestManager = require("../utils/rideRequestManager");
+const socketService = require("../services/socketService");
+const notificationService = require("../services/notificationService");
 const crypto = require("crypto");
 
 // Surrey boundary coordinates (approximate polygon for Surrey, UK)
@@ -405,6 +407,17 @@ exports.bookRide = async (req, res) => {
           ride._id,
           availableDrivers.map((d) => d.driver._id)
         );
+
+        // Send ride request notifications to all available drivers
+        availableDrivers.forEach((driverInfo) => {
+          socketService.notifyRideRequest(
+            driverInfo.driver._id.toString(),
+            ride
+          );
+        });
+
+        // Notify rider that we're searching for drivers
+        socketService.notifyRideStatus(req.user.id, "searching", ride);
       }
     }
 
@@ -616,6 +629,23 @@ exports.acceptRide = async (req, res) => {
       },
     });
 
+    // Send notifications
+    socketService.notifyRideStatus(ride.rider._id.toString(), "accepted", ride);
+
+    // Send email/SMS notification to rider
+    try {
+      await notificationService.sendRideAcceptedNotification(
+        ride.rider,
+        ride.driver,
+        ride
+      );
+    } catch (notificationError) {
+      console.error(
+        "Ride accepted notification failed:",
+        notificationError.message
+      );
+    }
+
     const response = {
       ride: {
         id: ride._id,
@@ -679,6 +709,9 @@ exports.startRide = async (req, res) => {
     ride.startTime = new Date();
     ride.actualPickupTime = new Date();
     await ride.save();
+
+    // Send notification to rider about ride start
+    socketService.notifyRideStatus(ride.rider.toString(), "in_progress", ride);
 
     sendSuccess(res, { ride }, "Ride started successfully", 200);
   } catch (error) {
@@ -777,6 +810,19 @@ exports.completeRide = async (req, res) => {
       status: paymentStatus,
       paymentMethod: ride.paymentMethod,
     });
+
+    // Send notification to rider about ride completion
+    socketService.notifyRideStatus(ride.rider.toString(), "completed", ride);
+
+    // Send email notification to rider
+    try {
+      await notificationService.sendRideCompletedNotification(ride.rider, ride);
+    } catch (notificationError) {
+      console.error(
+        "Ride completed notification failed:",
+        notificationError.message
+      );
+    }
 
     const response = {
       ride: {
@@ -1212,6 +1258,20 @@ exports.cancelRide = async (req, res) => {
     ride.refundAmount = refundAmount;
     await ride.save();
 
+    // Send notification to both rider and driver (if assigned) about cancellation
+    socketService.notifyRideCancelled(
+      ride.rider.toString(),
+      cancellationReason,
+      ride
+    );
+    if (ride.driver) {
+      socketService.notifyRideCancelled(
+        ride.driver.toString(),
+        cancellationReason,
+        ride
+      );
+    }
+
     const response = {
       ride: {
         id: ride._id,
@@ -1254,6 +1314,304 @@ function calculateCancellationFee(ride, cancelledAt) {
 
   // £2 fee for other cases after 2 minutes
   return 2.0;
+}
+
+// Add tip to completed ride
+exports.addTip = async (req, res) => {
+  try {
+    const { tipAmount } = req.body;
+    const rideId = req.params.rideId;
+    const riderId = req.user.id;
+
+    // Validate tip amount
+    if (!tipAmount || tipAmount <= 0) {
+      return sendError(res, "Tip amount must be greater than 0", 400);
+    }
+
+    if (tipAmount > 50) {
+      return sendError(res, "Tip amount cannot exceed £50", 400);
+    }
+
+    const ride = await Ride.findById(rideId);
+    if (!ride) {
+      return sendError(res, "Ride not found", 404);
+    }
+
+    // Check if user is the rider
+    if (ride.rider.toString() !== riderId) {
+      return sendError(res, "You can only add tips to your own rides", 403);
+    }
+
+    // Check if ride is completed
+    if (ride.status !== "completed") {
+      return sendError(res, "Tips can only be added to completed rides", 400);
+    }
+
+    // Check if tip already added
+    if (ride.tips > 0) {
+      return sendError(res, "Tip has already been added to this ride", 400);
+    }
+
+    // Check wallet balance
+    const wallet = await Wallet.findOne({ user: riderId });
+    if (!wallet || wallet.balance < tipAmount) {
+      return sendError(res, "Insufficient wallet balance for tip", 400);
+    }
+
+    // Deduct from wallet
+    wallet.balance -= tipAmount;
+    wallet.transactions.push({
+      type: "tip",
+      amount: tipAmount,
+      ride: rideId,
+      description: `Tip for ride ${rideId}`,
+    });
+    await wallet.save();
+
+    // Update ride with tip
+    ride.tips = tipAmount;
+    ride.driverEarnings += tipAmount; // Add tip to driver earnings
+    await ride.save();
+
+    // Send notification to driver
+    socketService.notifyUser(ride.driver.toString(), "tip_received", {
+      rideId: ride._id,
+      tipAmount,
+      riderName: req.user.fullName,
+      message: `You received a £${tipAmount} tip from ${req.user.fullName}!`,
+    });
+
+    sendSuccess(
+      res,
+      {
+        rideId: ride._id,
+        tipAmount,
+        driverEarnings: ride.driverEarnings,
+        walletBalance: wallet.balance,
+      },
+      "Tip added successfully",
+      200
+    );
+  } catch (error) {
+    console.error("Add tip error:", error);
+    sendError(res, "Failed to add tip", 500);
+  }
+};
+
+// Rate driver after ride completion
+exports.rateDriver = async (req, res) => {
+  try {
+    const { rating, comment } = req.body;
+    const rideId = req.params.rideId;
+    const riderId = req.user.id;
+
+    // Validate rating
+    if (!rating || rating < 1 || rating > 5) {
+      return sendError(res, "Rating must be between 1 and 5", 400);
+    }
+
+    const ride = await Ride.findById(rideId).populate("driver");
+    if (!ride) {
+      return sendError(res, "Ride not found", 404);
+    }
+
+    // Check if user is the rider
+    if (ride.rider.toString() !== riderId) {
+      return sendError(
+        res,
+        "You can only rate rides you were the rider for",
+        403
+      );
+    }
+
+    // Check if ride is completed
+    if (ride.status !== "completed") {
+      return sendError(res, "You can only rate completed rides", 400);
+    }
+
+    // Check if rating already exists
+    if (ride.rating && ride.rating.riderRating) {
+      return sendError(res, "You have already rated this ride", 400);
+    }
+
+    // Update ride rating
+    ride.rating = {
+      ...ride.rating,
+      riderRating: rating,
+      riderComment: comment || null,
+    };
+    await ride.save();
+
+    // Update driver average rating
+    await updateDriverRating(ride.driver._id);
+
+    // Send notification to driver
+    socketService.notifyUser(ride.driver._id.toString(), "rider_rating", {
+      rideId: ride._id,
+      rating,
+      comment,
+      riderName: req.user.fullName,
+      message: `${req.user.fullName} rated your service ${rating} star${
+        rating > 1 ? "s" : ""
+      }`,
+    });
+
+    sendSuccess(
+      res,
+      {
+        rideId: ride._id,
+        rating,
+        comment,
+      },
+      "Driver rated successfully",
+      200
+    );
+  } catch (error) {
+    console.error("Rate driver error:", error);
+    sendError(res, "Failed to rate driver", 500);
+  }
+};
+
+// Rate rider after ride completion (driver)
+exports.rateRider = async (req, res) => {
+  try {
+    const { rating, comment } = req.body;
+    const rideId = req.params.rideId;
+    const driverId = req.user.id;
+
+    // Validate rating
+    if (!rating || rating < 1 || rating > 5) {
+      return sendError(res, "Rating must be between 1 and 5", 400);
+    }
+
+    const ride = await Ride.findById(rideId).populate("rider");
+    if (!ride) {
+      return sendError(res, "Ride not found", 404);
+    }
+
+    // Check if user is the driver
+    if (ride.driver.toString() !== driverId) {
+      return sendError(
+        res,
+        "You can only rate rides you were the driver for",
+        403
+      );
+    }
+
+    // Check if ride is completed
+    if (ride.status !== "completed") {
+      return sendError(res, "You can only rate completed rides", 400);
+    }
+
+    // Check if rating already exists
+    if (ride.rating && ride.rating.driverRating) {
+      return sendError(res, "You have already rated this ride", 400);
+    }
+
+    // Update ride rating
+    ride.rating = {
+      ...ride.rating,
+      driverRating: rating,
+      driverComment: comment || null,
+    };
+    await ride.save();
+
+    // Update rider average rating
+    await updateRiderRating(ride.rider._id);
+
+    // Send notification to rider
+    socketService.notifyUser(ride.rider.toString(), "driver_rating", {
+      rideId: ride._id,
+      rating,
+      comment,
+      driverName: req.user.fullName,
+      message: `${req.user.fullName} rated you ${rating} star${
+        rating > 1 ? "s" : ""
+      }`,
+    });
+
+    sendSuccess(
+      res,
+      {
+        rideId: ride._id,
+        rating,
+        comment,
+      },
+      "Rider rated successfully",
+      200
+    );
+  } catch (error) {
+    console.error("Rate rider error:", error);
+    sendError(res, "Failed to rate rider", 500);
+  }
+};
+
+// Helper function to update driver average rating
+async function updateDriverRating(driverId) {
+  try {
+    const Driver = require("../models/Driver");
+
+    // Calculate average rating from completed rides
+    const ratingResult = await Ride.aggregate([
+      {
+        $match: {
+          driver: driverId,
+          status: "completed",
+          "rating.riderRating": { $exists: true },
+        },
+      },
+      {
+        $group: {
+          _id: null,
+          averageRating: { $avg: "$rating.riderRating" },
+          count: { $sum: 1 },
+        },
+      },
+    ]);
+
+    const newRating =
+      ratingResult.length > 0
+        ? Math.round(ratingResult[0].averageRating * 10) / 10
+        : 5.0;
+
+    await Driver.findByIdAndUpdate(driverId, { rating: newRating });
+  } catch (error) {
+    console.error("Error updating driver rating:", error);
+  }
+}
+
+// Helper function to update rider average rating
+async function updateRiderRating(riderId) {
+  try {
+    const Rider = require("../models/Rider");
+
+    // Calculate average rating from completed rides
+    const ratingResult = await Ride.aggregate([
+      {
+        $match: {
+          rider: riderId,
+          status: "completed",
+          "rating.driverRating": { $exists: true },
+        },
+      },
+      {
+        $group: {
+          _id: null,
+          averageRating: { $avg: "$rating.driverRating" },
+          count: { $sum: 1 },
+        },
+      },
+    ]);
+
+    const newRating =
+      ratingResult.length > 0
+        ? Math.round(ratingResult[0].averageRating * 10) / 10
+        : 5.0;
+
+    await Rider.findByIdAndUpdate(riderId, { rating: newRating });
+  } catch (error) {
+    console.error("Error updating rider rating:", error);
+  }
 }
 
 // Helper function to encode a point for Google Maps polyline (simplified)

@@ -62,4 +62,20 @@ router.put(
   rideController.completeRide
 );
 
+// Tip system
+router.post("/:rideId/tip", checkPermission("add_tip"), rideController.addTip);
+
+// Rating system
+router.post(
+  "/:rideId/rate-driver",
+  checkPermission("rate_driver"),
+  rideController.rateDriver
+);
+
+router.post(
+  "/:rideId/rate-rider",
+  checkPermission("rate_rider"),
+  rideController.rateRider
+);
+
 module.exports = router;
