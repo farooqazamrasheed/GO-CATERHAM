@@ -443,3 +443,129 @@ exports.updateSettings = async (req, res) => {
     sendError(res, "Failed to update settings", 500);
   }
 };
+
+// Deactivate account
+exports.deactivateAccount = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const userRole = req.user.role;
+
+    let profile;
+    let profileId;
+    let updateField = { activeStatus: "deactive" };
+
+    if (userRole === "rider") {
+      profile = await Rider.findOne({ user: userId });
+      profileId = profile._id;
+      await Rider.findByIdAndUpdate(profileId, updateField);
+    } else if (userRole === "driver") {
+      profile = await Driver.findOne({ user: userId });
+      profileId = profile._id;
+      await Driver.findByIdAndUpdate(profileId, updateField);
+    } else if (userRole === "admin" || userRole === "subadmin") {
+      profile = await Admin.findOne({ user: userId });
+      profileId = profile._id;
+      await Admin.findByIdAndUpdate(profileId, updateField);
+    }
+
+    // Log to history
+    const historyData = {
+      userId,
+      userType:
+        userRole === "admin" || userRole === "subadmin" ? "admin" : userRole,
+      action: "deactivate",
+      performedBy: profileId,
+    };
+
+    if (userRole === "driver") historyData.driverId = profileId;
+    else if (userRole === "rider") historyData.riderId = profileId;
+    else historyData.adminId = profileId;
+
+    await ActiveStatusHistory.create(historyData);
+
+    // Emit WebSocket event
+    const io = req.app.get("io");
+    if (io) {
+      io.emit("activeStatusChanged", {
+        userId,
+        userType: historyData.userType,
+        action: "deactivate",
+        timestamp: new Date(),
+        performedBy: profileId,
+      });
+    }
+
+    sendSuccess(
+      res,
+      { timestamp: new Date() },
+      "Account deactivated successfully",
+      200
+    );
+  } catch (err) {
+    console.error("Deactivate account error:", err);
+    sendError(res, "Failed to deactivate account", 500);
+  }
+};
+
+// Activate account
+exports.activateAccount = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const userRole = req.user.role;
+
+    let profile;
+    let profileId;
+    let updateField = { activeStatus: "active" };
+
+    if (userRole === "rider") {
+      profile = await Rider.findOne({ user: userId });
+      profileId = profile._id;
+      await Rider.findByIdAndUpdate(profileId, updateField);
+    } else if (userRole === "driver") {
+      profile = await Driver.findOne({ user: userId });
+      profileId = profile._id;
+      await Driver.findByIdAndUpdate(profileId, updateField);
+    } else if (userRole === "admin" || userRole === "subadmin") {
+      profile = await Admin.findOne({ user: userId });
+      profileId = profile._id;
+      await Admin.findByIdAndUpdate(profileId, updateField);
+    }
+
+    // Log to history
+    const historyData = {
+      userId,
+      userType:
+        userRole === "admin" || userRole === "subadmin" ? "admin" : userRole,
+      action: "activate",
+      performedBy: profileId,
+    };
+
+    if (userRole === "driver") historyData.driverId = profileId;
+    else if (userRole === "rider") historyData.riderId = profileId;
+    else historyData.adminId = profileId;
+
+    await ActiveStatusHistory.create(historyData);
+
+    // Emit WebSocket event
+    const io = req.app.get("io");
+    if (io) {
+      io.emit("activeStatusChanged", {
+        userId,
+        userType: historyData.userType,
+        action: "activate",
+        timestamp: new Date(),
+        performedBy: profileId,
+      });
+    }
+
+    sendSuccess(
+      res,
+      { timestamp: new Date() },
+      "Account activated successfully",
+      200
+    );
+  } catch (err) {
+    console.error("Activate account error:", err);
+    sendError(res, "Failed to activate account", 500);
+  }
+};

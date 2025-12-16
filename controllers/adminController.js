@@ -1635,6 +1635,12 @@ exports.getDashboard = async (req, res) => {
     const totalRiders = await Rider.countDocuments();
     const activeRiders = await Rider.countDocuments({ status: "online" });
     const inactiveRiders = await Rider.countDocuments({ status: "offline" });
+    const activeStatusActiveRiders = await Rider.countDocuments({
+      activeStatus: "active",
+    });
+    const activeStatusInactiveRiders = await Rider.countDocuments({
+      activeStatus: "deactive",
+    });
 
     // Drivers counts
     const totalDrivers = await Driver.countDocuments();
@@ -1642,6 +1648,12 @@ exports.getDashboard = async (req, res) => {
       status: { $in: ["online", "busy"] },
     });
     const inactiveDrivers = await Driver.countDocuments({ status: "offline" });
+    const activeStatusActiveDrivers = await Driver.countDocuments({
+      activeStatus: "active",
+    });
+    const activeStatusInactiveDrivers = await Driver.countDocuments({
+      activeStatus: "deactive",
+    });
 
     // Rides count
     const totalRides = await Ride.countDocuments();
@@ -1663,11 +1675,19 @@ exports.getDashboard = async (req, res) => {
         total: totalRiders,
         active: activeRiders,
         inactive: inactiveRiders,
+        activeStatus: {
+          active: activeStatusActiveRiders,
+          inactive: activeStatusInactiveRiders,
+        },
       },
       drivers: {
         total: totalDrivers,
         active: activeDrivers,
         inactive: inactiveDrivers,
+        activeStatus: {
+          active: activeStatusActiveDrivers,
+          inactive: activeStatusInactiveDrivers,
+        },
       },
       rides: totalRides,
       revenue: revenue,
