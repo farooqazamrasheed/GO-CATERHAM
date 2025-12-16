@@ -589,7 +589,7 @@ exports.getAdmins = async (req, res) => {
 
     const total = await Admin.countDocuments(query);
     const admins = await Admin.find(query)
-      .populate("user", "fullName email")
+      .populate("user", "fullName email username")
       .populate("assignedPermissions", "name description")
       .populate("assignedRoles", "name description")
       .sort({ createdAt: -1 })
