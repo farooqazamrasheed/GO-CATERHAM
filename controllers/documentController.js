@@ -119,7 +119,10 @@ exports.uploadDriverDocuments = [
         }
       });
 
-      // No additional data handling needed for documents
+      // Fix legacy status issue - change 'pending' to 'offline' if present
+      if (driver.status === "pending") {
+        driver.status = "offline";
+      }
 
       await driver.save();
 

@@ -157,6 +157,52 @@ class SocketService {
       cancellationFee: rideData.cancellationFee || 0,
     });
   }
+
+  /**
+   * Notify admins about ride status changes
+   * @param {Object} rideData - Ride data (may not be populated)
+   */
+  async notifyAdminRideUpdate(rideData) {
+    if (this.io) {
+      try {
+        // Populate the ride data if not already populated
+        const populatedRide = await rideData.populate([
+          { path: "rider", select: "fullName" },
+          { path: "driver", populate: { path: "user", select: "fullName" } },
+        ]);
+
+        // Emit to all admin users (admin, superadmin, subadmin)
+        this.io.emit("admin_ride_update", {
+          rideId: populatedRide._id,
+          riderId: populatedRide.rider?._id,
+          driverId: populatedRide.driver?._id,
+          status: populatedRide.status,
+          pickup: populatedRide.pickup,
+          dropoff: populatedRide.dropoff,
+          fare: populatedRide.fare || populatedRide.estimatedFare,
+          distance:
+            populatedRide.actualDistance || populatedRide.estimatedDistance,
+          updatedAt: new Date(),
+          rideData: {
+            riderFullName: populatedRide.rider?.fullName || "N/A",
+            driverFullName: populatedRide.driver?.user?.fullName || "N/A",
+            route:
+              populatedRide.pickup && populatedRide.dropoff
+                ? {
+                    pickup: populatedRide.pickup.address || "N/A",
+                    dropoff: populatedRide.dropoff.address || "N/A",
+                  }
+                : { pickup: "N/A", dropoff: "N/A" },
+          },
+        });
+        console.log(
+          `Admin notification sent for ride ${populatedRide._id} status: ${populatedRide.status}`
+        );
+      } catch (error) {
+        console.error("Error sending admin ride update notification:", error);
+      }
+    }
+  }
 }
 
 // Create singleton instance

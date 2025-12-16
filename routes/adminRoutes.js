@@ -133,6 +133,18 @@ router.put(
   adminController.unsuspendRider
 );
 
+// Ride management - view rides
+router.get(
+  "/rides",
+  checkRole("admin", "superadmin", "subadmin"),
+  adminController.getRides
+);
+router.get(
+  "/rides/:rideId",
+  checkRole("admin", "superadmin", "subadmin"),
+  adminController.getRideDetails
+);
+
 // Admin management - only superadmin and admin
 router.post(
   "/admins",

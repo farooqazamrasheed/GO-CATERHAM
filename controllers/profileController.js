@@ -1,10 +1,13 @@
 const User = require("../models/User");
 const Rider = require("../models/Rider");
+const Driver = require("../models/Driver");
+const Admin = require("../models/Admin");
 const SavedLocation = require("../models/SavedLocation");
 const PaymentMethod = require("../models/PaymentMethod");
 const UserSettings = require("../models/UserSettings");
 const { sendSuccess, sendError } = require("../utils/responseHelper");
 const { profilePictureUpload } = require("../config/multerConfig");
+const { auditLoggers } = require("../middlewares/audit");
 
 // Get user profile
 exports.getProfile = async (req, res) => {

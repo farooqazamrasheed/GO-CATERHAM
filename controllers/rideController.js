@@ -712,6 +712,7 @@ exports.startRide = async (req, res) => {
 
     // Send notification to rider about ride start
     socketService.notifyRideStatus(ride.rider.toString(), "in_progress", ride);
+    await socketService.notifyAdminRideUpdate(ride);
 
     sendSuccess(res, { ride }, "Ride started successfully", 200);
   } catch (error) {
@@ -787,6 +788,9 @@ exports.completeRide = async (req, res) => {
     await ride.save();
 
     let paymentStatus = "pending";
+
+    // Notify admins about ride completion
+    await socketService.notifyAdminRideUpdate(ride);
 
     // Process payment based on method
     if (ride.paymentMethod === "wallet") {
@@ -1271,6 +1275,9 @@ exports.cancelRide = async (req, res) => {
         ride
       );
     }
+
+    // Notify admins about ride cancellation
+    await socketService.notifyAdminRideUpdate(ride);
 
     const response = {
       ride: {

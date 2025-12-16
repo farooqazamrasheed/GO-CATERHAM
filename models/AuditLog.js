@@ -45,6 +45,11 @@ const auditLogSchema = new mongoose.Schema(
         "PROCESS_REFUND",
         "UPDATE_PAYMENT_STATUS",
 
+        // User activation management
+        "USER_ACTIVATED",
+        "USER_DEACTIVATED",
+        "USER_SELF_DEACTIVATED",
+
         // System actions
         "SYSTEM_BACKUP",
         "CONFIGURATION_CHANGE",

@@ -1683,3 +1683,133 @@ exports.getDashboard = async (req, res) => {
     sendError(res, "Failed to retrieve dashboard data", 500);
   }
 };
+
+// Get all rides with pagination and filtering
+exports.getRides = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const userAdmin = await Admin.findOne({ user: userId });
+
+    if (!userAdmin) {
+      return sendError(res, "Admin profile not found", 404);
+    }
+
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+    const skip = (page - 1) * limit;
+
+    // Build filter query
+    let query = {};
+
+    // Filter by status
+    if (req.query.status) {
+      query.status = req.query.status;
+    }
+
+    // Filter by date range
+    if (req.query.startDate && req.query.endDate) {
+      query.createdAt = {
+        $gte: new Date(req.query.startDate),
+        $lte: new Date(req.query.endDate),
+      };
+    }
+
+    // Search by rider or driver name
+    if (req.query.search) {
+      const searchRegex = new RegExp(req.query.search, "i");
+      // Search in rider and driver user fullName
+      const riderUserIds = await User.find({
+        fullName: searchRegex,
+        role: "rider",
+      }).select("_id");
+      const driverUserIds = await User.find({
+        fullName: searchRegex,
+        role: "driver",
+      }).select("_id");
+      const driverIds = await Driver.find({
+        user: { $in: driverUserIds.map((u) => u._id) },
+      }).select("_id");
+
+      query.$or = [
+        { rider: { $in: riderUserIds.map((u) => u._id) } },
+        { driver: { $in: driverIds.map((d) => d._id) } },
+      ];
+    }
+
+    const total = await Ride.countDocuments(query);
+    const rides = await Ride.find(query)
+      .populate("rider", "fullName")
+      .populate("driver", "user")
+      .populate({
+        path: "driver",
+        populate: {
+          path: "user",
+          select: "fullName",
+        },
+      })
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit);
+
+    const formattedRides = rides.map((ride) => ({
+      rideId: ride._id,
+      riderFullName: ride.rider?.fullName || "N/A",
+      driverFullName: ride.driver?.user?.fullName || "N/A",
+      route: `${ride.pickup?.address || "N/A"} to ${
+        ride.dropoff?.address || "N/A"
+      }`,
+      distance: ride.actualDistance || ride.estimatedDistance || 0,
+      fare: ride.fare || ride.estimatedFare || 0,
+      status: ride.status,
+      createdAt: ride.createdAt,
+    }));
+
+    const totalPages = Math.ceil(total / limit);
+
+    sendSuccess(
+      res,
+      {
+        rides: formattedRides,
+        pagination: {
+          currentPage: page,
+          totalPages,
+          totalRides: total,
+          hasNext: page < totalPages,
+          hasPrev: page > 1,
+        },
+      },
+      "Rides retrieved successfully",
+      200
+    );
+  } catch (err) {
+    console.error("Get rides error:", err);
+    sendError(res, "Failed to retrieve rides", 500);
+  }
+};
+
+// Get ride details by ID
+exports.getRideDetails = async (req, res) => {
+  try {
+    const { rideId } = req.params;
+
+    const ride = await Ride.findById(rideId)
+      .populate("rider", "fullName email phone")
+      .populate("driver", "user vehicle")
+      .populate({
+        path: "driver",
+        populate: {
+          path: "user",
+          select: "fullName email phone",
+        },
+      });
+
+    if (!ride) {
+      return sendError(res, "Ride not found", 404);
+    }
+
+    sendSuccess(res, { ride }, "Ride details retrieved successfully", 200);
+  } catch (err) {
+    console.error("Get ride details error:", err);
+    sendError(res, "Failed to retrieve ride details", 500);
+  }
+};

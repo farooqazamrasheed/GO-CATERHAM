@@ -430,7 +430,7 @@ exports.login = async (req, res) => {
       if (!driver) return sendError(res, "Driver profile not found", 404);
 
       // Set status based on approval
-      const newStatus = driver.isApproved === "approved" ? "online" : "pending";
+      const newStatus = driver.isApproved === "approved" ? "online" : "offline";
       const updatedDriver = await Driver.findOneAndUpdate(
         { user: user._id },
         { status: newStatus },

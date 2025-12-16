@@ -55,6 +55,9 @@ class RideRequestManager {
       // Update driver status to busy
       await Driver.findByIdAndUpdate(driverId, { status: "busy" });
 
+      // Notify admins about ride status change
+      await socketService.notifyAdminRideUpdate(ride);
+
       // Remove from queue
       this.requestQueue.delete(rideId);
 
@@ -149,6 +152,9 @@ class RideRequestManager {
         "No driver available",
         ride
       );
+
+      // Notify admins about ride cancellation
+      await socketService.notifyAdminRideUpdate(ride);
 
       return ride;
     } catch (error) {
