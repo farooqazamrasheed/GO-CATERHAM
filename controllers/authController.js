@@ -199,6 +199,7 @@ exports.signup = async (req, res) => {
           vehicleType: vehicleType || "sedan",
           numberPlateOfVehicle,
           photo: null,
+          activeStatus: "active",
         });
 
         // Calculate estimated approval time (24-48 hours from now)
@@ -267,6 +268,7 @@ exports.signup = async (req, res) => {
           user: user._id,
           referralCode: uniqueReferralCode,
           referredBy,
+          activeStatus: "active",
         });
 
         profileInfo = {

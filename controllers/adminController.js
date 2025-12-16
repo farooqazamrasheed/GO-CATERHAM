@@ -6,6 +6,7 @@ const Permission = require("../models/Permission");
 const Rider = require("../models/Rider");
 const Ride = require("../models/Ride");
 const Payment = require("../models/Payment");
+const ActiveStatusHistory = require("../models/ActiveStatusHistory");
 const { sendSuccess, sendError } = require("../utils/responseHelper");
 const { auditLoggers } = require("../middlewares/audit");
 const { driverPhotoUpload } = require("../config/multerConfig");
@@ -1811,5 +1812,165 @@ exports.getRideDetails = async (req, res) => {
   } catch (err) {
     console.error("Get ride details error:", err);
     sendError(res, "Failed to retrieve ride details", 500);
+  }
+};
+
+// Get admin active status history
+exports.getAdminActiveHistory = async (req, res) => {
+  try {
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+    const skip = (page - 1) * limit;
+
+    const query = { userType: "admin" };
+
+    const total = await ActiveStatusHistory.countDocuments(query);
+    const history = await ActiveStatusHistory.find(query)
+      .populate("userId", "fullName email")
+      .populate("adminId", "adminType")
+      .sort({ timestamp: -1 })
+      .skip(skip)
+      .limit(limit);
+
+    const totalPages = Math.ceil(total / limit);
+
+    sendSuccess(
+      res,
+      {
+        history,
+        pagination: {
+          currentPage: page,
+          totalPages,
+          totalRecords: total,
+          hasNext: page < totalPages,
+          hasPrev: page > 1,
+        },
+      },
+      "Admin active status history retrieved successfully",
+      200
+    );
+  } catch (err) {
+    console.error("Get admin active history error:", err);
+    sendError(res, "Failed to retrieve admin active status history", 500);
+  }
+};
+
+// Get driver active status history
+exports.getDriverActiveHistory = async (req, res) => {
+  try {
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+    const skip = (page - 1) * limit;
+
+    const query = { userType: "driver" };
+
+    const total = await ActiveStatusHistory.countDocuments(query);
+    const history = await ActiveStatusHistory.find(query)
+      .populate("userId", "fullName email")
+      .populate("driverId", "vehicle numberPlateOfVehicle")
+      .sort({ timestamp: -1 })
+      .skip(skip)
+      .limit(limit);
+
+    const totalPages = Math.ceil(total / limit);
+
+    sendSuccess(
+      res,
+      {
+        history,
+        pagination: {
+          currentPage: page,
+          totalPages,
+          totalRecords: total,
+          hasNext: page < totalPages,
+          hasPrev: page > 1,
+        },
+      },
+      "Driver active status history retrieved successfully",
+      200
+    );
+  } catch (err) {
+    console.error("Get driver active history error:", err);
+    sendError(res, "Failed to retrieve driver active status history", 500);
+  }
+};
+
+// Get rider active status history
+exports.getRiderActiveHistory = async (req, res) => {
+  try {
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+    const skip = (page - 1) * limit;
+
+    const query = { userType: "rider" };
+
+    const total = await ActiveStatusHistory.countDocuments(query);
+    const history = await ActiveStatusHistory.find(query)
+      .populate("userId", "fullName email")
+      .populate("riderId", "rating")
+      .sort({ timestamp: -1 })
+      .skip(skip)
+      .limit(limit);
+
+    const totalPages = Math.ceil(total / limit);
+
+    sendSuccess(
+      res,
+      {
+        history,
+        pagination: {
+          currentPage: page,
+          totalPages,
+          totalRecords: total,
+          hasNext: page < totalPages,
+          hasPrev: page > 1,
+        },
+      },
+      "Rider active status history retrieved successfully",
+      200
+    );
+  } catch (err) {
+    console.error("Get rider active history error:", err);
+    sendError(res, "Failed to retrieve rider active status history", 500);
+  }
+};
+
+// Get all active status history
+exports.getAllActiveHistory = async (req, res) => {
+  try {
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+    const skip = (page - 1) * limit;
+
+    const total = await ActiveStatusHistory.countDocuments();
+    const history = await ActiveStatusHistory.find()
+      .populate("userId", "fullName email")
+      .populate("driverId", "vehicle numberPlateOfVehicle")
+      .populate("adminId", "adminType")
+      .populate("riderId", "rating")
+      .sort({ timestamp: -1 })
+      .skip(skip)
+      .limit(limit);
+
+    const totalPages = Math.ceil(total / limit);
+
+    sendSuccess(
+      res,
+      {
+        history,
+        pagination: {
+          currentPage: page,
+          totalPages,
+          totalRecords: total,
+          hasNext: page < totalPages,
+          hasPrev: page > 1,
+        },
+      },
+      "All active status history retrieved successfully",
+      200
+    );
+  } catch (err) {
+    console.error("Get all active history error:", err);
+    sendError(res, "Failed to retrieve all active status history", 500);
   }
 };

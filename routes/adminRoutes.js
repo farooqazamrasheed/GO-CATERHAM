@@ -179,4 +179,26 @@ router.delete(
   adminController.deleteAdmin
 );
 
+// Active status history
+router.get(
+  "/admins/active-history",
+  checkRole("admin", "superadmin"),
+  adminController.getAdminActiveHistory
+);
+router.get(
+  "/drivers/active-history",
+  checkRole("admin", "superadmin"),
+  adminController.getDriverActiveHistory
+);
+router.get(
+  "/riders/active-history",
+  checkRole("admin", "superadmin"),
+  adminController.getRiderActiveHistory
+);
+router.get(
+  "/active-history",
+  checkRole("admin", "superadmin"),
+  adminController.getAllActiveHistory
+);
+
 module.exports = router;

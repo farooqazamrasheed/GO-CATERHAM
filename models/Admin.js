@@ -46,6 +46,11 @@ const adminSchema = new mongoose.Schema(
         ref: "Role",
       },
     ],
+    activeStatus: {
+      type: String,
+      enum: ["active", "deactive"],
+      default: "active",
+    },
   },
   { timestamps: true }
 );

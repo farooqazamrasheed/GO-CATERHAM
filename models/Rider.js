@@ -48,6 +48,11 @@ const riderSchema = new mongoose.Schema(
       successfulReferrals: { type: Number, default: 0 },
       totalEarnedFromReferrals: { type: Number, default: 0 },
     },
+    activeStatus: {
+      type: String,
+      enum: ["active", "deactive"],
+      default: "active",
+    },
   },
   { timestamps: true }
 );

@@ -143,6 +143,11 @@ const driverSchema = new mongoose.Schema(
       mimetype: String,
       size: Number,
     },
+    activeStatus: {
+      type: String,
+      enum: ["active", "deactive"],
+      default: "active",
+    },
   },
   { timestamps: true }
 );

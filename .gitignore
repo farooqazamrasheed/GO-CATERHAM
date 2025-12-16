@@ -2,6 +2,8 @@
 node_modules/
 
 API_DOCUMENTATION.md
+API_Postman_Instructions.md
+GO-CATERHAM_Postman_Collection.json
 
 # Environment variables
 .env
