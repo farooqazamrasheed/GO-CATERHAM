@@ -1846,8 +1846,8 @@ exports.getAdminActiveHistory = async (req, res) => {
 
     const total = await ActiveStatusHistory.countDocuments(query);
     const history = await ActiveStatusHistory.find(query)
-      .populate("userId", "fullName email")
-      .populate("adminId", "adminType")
+      .populate("userId", "fullName email username")
+      .populate("adminId", "adminType activeStatus")
       .sort({ timestamp: -1 })
       .skip(skip)
       .limit(limit);
@@ -1886,8 +1886,8 @@ exports.getDriverActiveHistory = async (req, res) => {
 
     const total = await ActiveStatusHistory.countDocuments(query);
     const history = await ActiveStatusHistory.find(query)
-      .populate("userId", "fullName email")
-      .populate("driverId", "vehicle numberPlateOfVehicle")
+      .populate("userId", "fullName email username")
+      .populate("driverId", "vehicle numberPlateOfVehicle activeStatus")
       .sort({ timestamp: -1 })
       .skip(skip)
       .limit(limit);
@@ -1926,8 +1926,8 @@ exports.getRiderActiveHistory = async (req, res) => {
 
     const total = await ActiveStatusHistory.countDocuments(query);
     const history = await ActiveStatusHistory.find(query)
-      .populate("userId", "fullName email")
-      .populate("riderId", "rating")
+      .populate("userId", "fullName email username")
+      .populate("riderId", "rating activeStatus")
       .sort({ timestamp: -1 })
       .skip(skip)
       .limit(limit);
@@ -1964,10 +1964,10 @@ exports.getAllActiveHistory = async (req, res) => {
 
     const total = await ActiveStatusHistory.countDocuments();
     const history = await ActiveStatusHistory.find()
-      .populate("userId", "fullName email")
-      .populate("driverId", "vehicle numberPlateOfVehicle")
-      .populate("adminId", "adminType")
-      .populate("riderId", "rating")
+      .populate("userId", "fullName email username")
+      .populate("driverId", "vehicle numberPlateOfVehicle activeStatus")
+      .populate("adminId", "adminType activeStatus")
+      .populate("riderId", "rating activeStatus")
       .sort({ timestamp: -1 })
       .skip(skip)
       .limit(limit);

@@ -51,6 +51,13 @@ router.put(
   adminController.verifyDocument
 );
 
+// Active status history - must come before :driverId routes
+router.get(
+  "/drivers/active-history",
+  checkRole("admin", "superadmin"),
+  adminController.getDriverActiveHistory
+);
+
 // Full driver management - view drivers
 router.get(
   "/drivers",
@@ -115,6 +122,13 @@ router.get(
   adminController.getDashboard
 );
 
+// Active status history - must come before general routes
+router.get(
+  "/riders/active-history",
+  checkRole("admin", "superadmin"),
+  adminController.getRiderActiveHistory
+);
+
 // Rider management - view riders
 router.get(
   "/riders",
@@ -143,6 +157,13 @@ router.get(
   "/rides/:rideId",
   checkRole("admin", "superadmin", "subadmin"),
   adminController.getRideDetails
+);
+
+// Active status history - must come before :id routes
+router.get(
+  "/admins/active-history",
+  checkRole("admin", "superadmin"),
+  adminController.getAdminActiveHistory
 );
 
 // Admin management - only superadmin and admin
@@ -179,22 +200,7 @@ router.delete(
   adminController.deleteAdmin
 );
 
-// Active status history
-router.get(
-  "/admins/active-history",
-  checkRole("admin", "superadmin"),
-  adminController.getAdminActiveHistory
-);
-router.get(
-  "/drivers/active-history",
-  checkRole("admin", "superadmin"),
-  adminController.getDriverActiveHistory
-);
-router.get(
-  "/riders/active-history",
-  checkRole("admin", "superadmin"),
-  adminController.getRiderActiveHistory
-);
+// Active status history - combined
 router.get(
   "/active-history",
   checkRole("admin", "superadmin"),

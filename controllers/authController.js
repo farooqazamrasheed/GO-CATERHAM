@@ -3,6 +3,7 @@ const User = require("../models/User");
 const Driver = require("../models/Driver");
 const Rider = require("../models/Rider");
 const Admin = require("../models/Admin");
+const ActiveStatusHistory = require("../models/ActiveStatusHistory");
 const crypto = require("crypto");
 const sendEmail = require("../utils/sendEmail");
 const bcrypt = require("bcryptjs");
@@ -207,8 +208,19 @@ exports.signup = async (req, res) => {
           Date.now() + 48 * 60 * 60 * 1000
         );
 
+        // Create initial activation history
+        await ActiveStatusHistory.create({
+          userId: user._id,
+          userType: "driver",
+          driverId: driverProfile._id,
+          action: "activate",
+          performedBy: driverProfile._id,
+          timestamp: new Date(),
+        });
+
         profileInfo = {
           onlineStatus: driverProfile.status,
+          activeStatus: driverProfile.activeStatus,
           driverId: driverProfile._id, // Include this for frontend
           vehicleDetails: {
             vehicle: driverProfile.vehicle,
@@ -271,8 +283,19 @@ exports.signup = async (req, res) => {
           activeStatus: "active",
         });
 
+        // Create initial activation history
+        await ActiveStatusHistory.create({
+          userId: user._id,
+          userType: "rider",
+          riderId: riderProfile._id,
+          action: "activate",
+          performedBy: riderProfile._id,
+          timestamp: new Date(),
+        });
+
         profileInfo = {
           onlineStatus: riderProfile.status,
+          activeStatus: riderProfile.activeStatus,
           totalRides: 0,
           rating: riderProfile.rating,
           savedAmount: 0,
@@ -280,15 +303,28 @@ exports.signup = async (req, res) => {
           referredBy: riderProfile.referredBy,
         };
       } else if (role === "admin") {
-        await Admin.create({
+        const adminProfile = await Admin.create({
           user: user._id,
           adminType: "admin", // Regular admin, not superadmin
+          activeStatus: "active",
+        });
+
+        // Create initial activation history
+        await ActiveStatusHistory.create({
+          userId: user._id,
+          userType: "admin",
+          adminId: adminProfile._id,
+          action: "activate",
+          performedBy: adminProfile._id,
+          timestamp: new Date(),
         });
 
         profileInfo = {
           onlineStatus: "online",
+          activeStatus: adminProfile.activeStatus,
           permissions: "full_access",
           role: "administrator",
+          adminType: adminProfile.adminType,
         };
       }
     } catch (profileError) {
@@ -492,6 +528,7 @@ exports.login = async (req, res) => {
       profileInfo = {
         riderId: profileData._id,
         onlineStatus: profileData.status,
+        activeStatus: profileData.activeStatus,
         totalRides,
         rating: profileData.rating,
         savedAmount,
@@ -524,6 +561,7 @@ exports.login = async (req, res) => {
         photo: profileData.photo,
         documents: profileData.documents,
         onlineStatus: profileData.status,
+        activeStatus: profileData.activeStatus,
         vehicleDetails: {
           vehicle: profileData.vehicle,
           numberPlate: profileData.numberPlateOfVehicle,
@@ -538,6 +576,7 @@ exports.login = async (req, res) => {
       // Admin/Superadmin profile - basic info only
       profileInfo = {
         onlineStatus: profileData.status,
+        activeStatus: profileData.activeStatus,
         permissions: "full_access",
         role: role === "superadmin" ? "superadministrator" : "administrator",
         adminType: profileData.adminType,
