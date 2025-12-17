@@ -263,6 +263,7 @@ exports.updateProfile = async (req, res) => {
       vehicleColor,
       vehicleType,
       numberPlateOfVehicle,
+      licenseExpiryDate,
     } = req.body;
 
     // Find the driver
@@ -358,6 +359,10 @@ exports.updateProfile = async (req, res) => {
       driver.numberPlateOfVehicle = numberPlateOfVehicle;
     }
 
+    if (licenseExpiryDate !== undefined) {
+      driver.licenseExpiryDate = new Date(licenseExpiryDate);
+    }
+
     // Save changes
     await user.save();
     await driver.save();
@@ -383,55 +388,6 @@ exports.updateProfile = async (req, res) => {
   } catch (error) {
     console.error("Update profile error:", error);
     sendError(res, "Failed to update profile", 500);
-  }
-};
-
-// Create driver profile
-exports.createProfile = async (req, res) => {
-  try {
-    const {
-      licenseNumber,
-      vehicle,
-      vehicleModel,
-      vehicleYear,
-      vehicleColor,
-      vehicleType,
-      numberPlateOfVehicle,
-    } = req.body;
-
-    // Check if driver profile already exists
-    const existingDriver = await Driver.findOne({ user: req.user.id });
-    if (existingDriver) {
-      return sendError(res, "Driver profile already exists", 409);
-    }
-
-    // Check if license number is unique
-    const existingLicense = await Driver.findOne({ licenseNumber });
-    if (existingLicense) {
-      return sendError(res, "License number already registered", 409);
-    }
-
-    // Check if number plate is unique
-    const existingPlate = await Driver.findOne({ numberPlateOfVehicle });
-    if (existingPlate) {
-      return sendError(res, "Number plate already registered", 409);
-    }
-
-    const driver = await Driver.create({
-      user: req.user.id,
-      licenseNumber,
-      vehicle,
-      vehicleModel,
-      vehicleYear,
-      vehicleColor,
-      vehicleType,
-      numberPlateOfVehicle,
-    });
-
-    sendSuccess(res, { driver }, "Driver profile created successfully", 201);
-  } catch (error) {
-    console.error("Create profile error:", error);
-    sendError(res, "Failed to create driver profile", 500);
   }
 };
 

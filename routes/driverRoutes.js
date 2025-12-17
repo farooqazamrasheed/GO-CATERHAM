@@ -23,12 +23,6 @@ router.get(
 );
 
 // Driver profile management
-router.post(
-  "/profile",
-  checkPermission("create_profile"),
-  parseFormData,
-  driverController.createProfile
-);
 router.get(
   "/profile",
   checkPermission("view_profile"),
