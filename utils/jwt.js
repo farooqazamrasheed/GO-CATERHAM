@@ -3,7 +3,7 @@ const jwt = require("jsonwebtoken");
 
 // ACCESS TOKEN (Short expiry)
 exports.generateToken = (payload) => {
-  return jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: "1h" });
+  return jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: "6h" });
 };
 
 // REFRESH TOKEN (Long expiry)

@@ -11,7 +11,19 @@ const parseFormData = multer().none();
 
 router.post("/signup", parseFormData, authController.signup);
 router.post("/login", parseFormData, authController.login);
-router.post("/logout", auth, parseFormData, authController.logout);
+router.post("/logout/:driverId", parseFormData, authController.logoutDriver);
+router.post("/logout/:riderId", parseFormData, authController.logoutRider);
+router.post("/logout/:adminId", parseFormData, authController.logoutAdmin);
+router.post(
+  "/logout/:subadminId",
+  parseFormData,
+  authController.logoutSubadmin
+);
+router.post(
+  "/logout/:superadminId",
+  parseFormData,
+  authController.logoutSuperadmin
+);
 router.post("/request-otp", parseFormData, authController.requestOTP);
 router.post("/verify-otp", parseFormData, authController.verifyOTP);
 router.post("/reset-password", parseFormData, authController.resetPassword);

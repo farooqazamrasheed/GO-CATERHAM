@@ -8,9 +8,13 @@ const { sendError } = require("../utils/responseHelper");
 const { driverPhotoUpload } = require("../config/multerConfig");
 
 const driverController = require("../controllers/driverController");
+const adminController = require("../controllers/adminController");
 
 // Middleware to parse form data for non-file routes
 const parseFormData = multer().none();
+
+// Public routes
+router.get("/", adminController.getDrivers);
 
 // All routes require authentication
 router.use(auth);
@@ -96,6 +100,13 @@ router.get(
   "/earnings/download",
   checkPermission("view_earnings"),
   driverController.downloadEarningsReport
+);
+
+// Driver management - for admins with permissions
+router.get(
+  "/:driverId",
+  checkPermission("view_drivers"),
+  adminController.getDriverDetails
 );
 
 module.exports = router;

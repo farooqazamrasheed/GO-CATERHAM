@@ -3,6 +3,10 @@ const router = express.Router();
 const auth = require("../middlewares/auth");
 const checkPermission = require("../middlewares/permission");
 const riderController = require("../controllers/riderController");
+const adminController = require("../controllers/adminController");
+
+// Public routes
+router.get("/", adminController.getRiders);
 
 // All rider routes require authentication
 router.use(auth);
@@ -29,6 +33,13 @@ router.get(
   "/dashboard",
   checkPermission("view_dashboard"),
   riderController.getDashboard
+);
+
+// Rider management - for admins with permissions
+router.get(
+  "/:riderId",
+  checkPermission("view_riders"),
+  adminController.getRiderDetails
 );
 
 module.exports = router;

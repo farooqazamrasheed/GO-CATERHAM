@@ -53,8 +53,11 @@ exports.signup = async (req, res) => {
       return sendError(res, "Username is required", 400);
     }
 
+    // Sanitize username: replace spaces with underscores
+    const sanitizedUsername = username.replace(/\s+/g, "_");
+
     // Check username format and length
-    if (username.length < 3 || username.length > 30) {
+    if (sanitizedUsername.length < 3 || sanitizedUsername.length > 30) {
       return sendError(
         res,
         "Username must be between 3 and 30 characters",
@@ -62,7 +65,7 @@ exports.signup = async (req, res) => {
       );
     }
 
-    if (!/^[a-zA-Z0-9_]+$/.test(username)) {
+    if (!/^[a-zA-Z0-9_]+$/.test(sanitizedUsername)) {
       return sendError(
         res,
         "Username can only contain letters, numbers, and underscores",
@@ -150,7 +153,7 @@ exports.signup = async (req, res) => {
 
     // Check username uniqueness
     const existingUsername = await User.findOne({
-      username: username.toLowerCase(),
+      username: sanitizedUsername.toLowerCase(),
     });
     if (existingUsername) {
       return sendError(res, "Username already taken", 409);
@@ -161,7 +164,7 @@ exports.signup = async (req, res) => {
       return sendError(res, "Email or phone already registered", 409);
 
     let userData = {
-      username: username.toLowerCase(),
+      username: sanitizedUsername.toLowerCase(),
       fullName,
       email,
       phone,
@@ -525,25 +528,61 @@ exports.login = async (req, res) => {
       const wallet = await Wallet.findOne({ user: user._id });
       const savedAmount = wallet ? wallet.balance : 0;
 
+      // Calculate total spent
+      const totalSpent = await Ride.aggregate([
+        { $match: { rider: user._id, status: "completed" } },
+        { $group: { _id: null, total: { $sum: "$fare" } } },
+      ]);
+      const totalSpentAmount = totalSpent.length > 0 ? totalSpent[0].total : 0;
+
+      // Referral earnings
+      const referralEarnings = profileData.referralStats
+        ? profileData.referralStats.totalEarnedFromReferrals
+        : 0;
+
       profileInfo = {
         riderId: profileData._id,
-        onlineStatus: profileData.status,
-        activeStatus: profileData.activeStatus,
-        totalRides,
+        userId: profileData.user,
+        referralCode: profileData.referralCode,
+        referredBy: profileData.referredBy,
         rating: profileData.rating,
-        savedAmount,
+        onlineStatus: profileData.status,
         isSuspended: profileData.isSuspended,
         suspensionMessage: profileData.suspensionMessage,
+        suspendedAt: profileData.suspendedAt,
+        suspendedBy: profileData.suspendedBy,
+        points: profileData.points,
+        referralStats: profileData.referralStats,
+        activeStatus: profileData.activeStatus,
+        createdAt: profileData.createdAt,
+        updatedAt: profileData.updatedAt,
+        // Dashboard data
+        totalRides,
+        savedAmount,
+        totalSpent: totalSpentAmount,
+        referralEarnings,
+        // User data
+        username: user.username,
+        fullName: user.fullName,
+        email: user.email,
+        phone: user.phone,
+        profilePicture: user.profilePicture,
+        address: user.address,
+        dateOfBirth: user.dateOfBirth,
+        preferences: user.preferences,
+        isVerified: user.isVerified,
+        userCreatedAt: user.createdAt,
+        userUpdatedAt: user.updatedAt,
       };
     } else if (role === "driver") {
-      // Calculate today's earnings
+      // Calculate earnings
       const Ride = require("../models/Ride");
       const today = new Date();
       today.setHours(0, 0, 0, 0);
       const tomorrow = new Date(today);
       tomorrow.setDate(tomorrow.getDate() + 1);
 
-      const todaysEarnings = await Ride.aggregate([
+      const todaysEarningsAgg = await Ride.aggregate([
         {
           $match: {
             driver: profileData._id,
@@ -553,33 +592,141 @@ exports.login = async (req, res) => {
         },
         { $group: { _id: null, total: { $sum: "$fare" } } },
       ]);
-      const earnings = todaysEarnings.length > 0 ? todaysEarnings[0].total : 0;
+      const todaysEarnings =
+        todaysEarningsAgg.length > 0 ? todaysEarningsAgg[0].total : 0;
+
+      // Weekly earnings (last 7 days)
+      const weekAgo = new Date();
+      weekAgo.setDate(weekAgo.getDate() - 7);
+      const weeklyEarningsAgg = await Ride.aggregate([
+        {
+          $match: {
+            driver: profileData._id,
+            status: "completed",
+            updatedAt: { $gte: weekAgo },
+          },
+        },
+        { $group: { _id: null, total: { $sum: "$fare" } } },
+      ]);
+      const weeklyEarnings =
+        weeklyEarningsAgg.length > 0 ? weeklyEarningsAgg[0].total : 0;
+
+      // Monthly earnings (last 30 days)
+      const monthAgo = new Date();
+      monthAgo.setDate(monthAgo.getDate() - 30);
+      const monthlyEarningsAgg = await Ride.aggregate([
+        {
+          $match: {
+            driver: profileData._id,
+            status: "completed",
+            updatedAt: { $gte: monthAgo },
+          },
+        },
+        { $group: { _id: null, total: { $sum: "$fare" } } },
+      ]);
+      const monthlyEarnings =
+        monthlyEarningsAgg.length > 0 ? monthlyEarningsAgg[0].total : 0;
+
+      // Total earnings
+      const totalEarningsAgg = await Ride.aggregate([
+        {
+          $match: {
+            driver: profileData._id,
+            status: "completed",
+          },
+        },
+        { $group: { _id: null, total: { $sum: "$fare" } } },
+      ]);
+      const totalEarnings =
+        totalEarningsAgg.length > 0 ? totalEarningsAgg[0].total : 0;
+
+      // Ride stats
+      const totalRides = await Ride.countDocuments({ driver: profileData._id });
+      const completedRides = await Ride.countDocuments({
+        driver: profileData._id,
+        status: "completed",
+      });
+      const cancelledRides = await Ride.countDocuments({
+        driver: profileData._id,
+        status: "cancelled",
+      });
 
       profileInfo = {
-        id: profileData._id,
+        driverId: profileData._id,
         userId: profileData.user,
+        licenseNumber: profileData.licenseNumber,
+        vehicle: profileData.vehicle,
+        vehicleModel: profileData.vehicleModel,
+        vehicleYear: profileData.vehicleYear,
+        vehicleColor: profileData.vehicleColor,
+        vehicleType: profileData.vehicleType,
+        numberPlateOfVehicle: profileData.numberPlateOfVehicle,
         photo: profileData.photo,
         documents: profileData.documents,
         onlineStatus: profileData.status,
-        activeStatus: profileData.activeStatus,
-        vehicleDetails: {
-          vehicle: profileData.vehicle,
-          numberPlate: profileData.numberPlateOfVehicle,
-        },
-        todaysEarnings: earnings,
         verificationStatus: profileData.verificationStatus,
         isApproved: profileData.isApproved,
         rejectionCount: profileData.rejectionCount,
         rejectionMessage: profileData.rejectionMessage,
+        lastRejectedAt: profileData.lastRejectedAt,
+        rejectedBy: profileData.rejectedBy,
+        rating: profileData.rating,
+        activeStatus: profileData.activeStatus,
+        createdAt: profileData.createdAt,
+        updatedAt: profileData.updatedAt,
+        // Earnings report
+        todaysEarnings,
+        weeklyEarnings,
+        monthlyEarnings,
+        totalEarnings,
+        // Dashboard
+        totalRides,
+        completedRides,
+        cancelledRides,
+        // User data
+        username: user.username,
+        fullName: user.fullName,
+        email: user.email,
+        phone: user.phone,
+        profilePicture: user.profilePicture,
+        address: user.address,
+        dateOfBirth: user.dateOfBirth,
+        preferences: user.preferences,
+        isVerified: user.isVerified,
+        userCreatedAt: user.createdAt,
+        userUpdatedAt: user.updatedAt,
       };
-    } else if (role === "admin" || role === "superadmin") {
-      // Admin/Superadmin profile - basic info only
+    } else if (
+      role === "admin" ||
+      role === "superadmin" ||
+      role === "subadmin"
+    ) {
+      // Populate assigned permissions and roles
+      await profileData.populate("assignedPermissions.permissionId");
+      await profileData.populate("assignedRoles");
+
       profileInfo = {
+        adminId: profileData._id,
+        userId: profileData.user,
+        adminType: profileData.adminType,
         onlineStatus: profileData.status,
         activeStatus: profileData.activeStatus,
-        permissions: "full_access",
-        role: role === "superadmin" ? "superadministrator" : "administrator",
-        adminType: profileData.adminType,
+        assignedPermissions: profileData.assignedPermissions,
+        assignedRoles: profileData.assignedRoles,
+        createdAt: profileData.createdAt,
+        updatedAt: profileData.updatedAt,
+        // User data
+        username: user.username,
+        fullName: user.fullName,
+        email: user.email,
+        phone: user.phone,
+        profilePicture: user.profilePicture,
+        address: user.address,
+        dateOfBirth: user.dateOfBirth,
+        preferences: user.preferences,
+        isVerified: user.isVerified,
+        userCreatedAt: user.createdAt,
+        userUpdatedAt: user.updatedAt,
       };
     }
 
@@ -595,30 +742,70 @@ exports.login = async (req, res) => {
   }
 };
 
-// ================= LOGOUT =================
-exports.logout = async (req, res) => {
+// ================= LOGOUT DRIVER =================
+exports.logoutDriver = async (req, res) => {
   try {
-    // Set status to offline
-    if (req.user.role === "rider") {
-      await Rider.findOneAndUpdate(
-        { user: req.user.id },
-        { status: "offline" }
-      );
-    } else if (req.user.role === "driver") {
-      await Driver.findOneAndUpdate(
-        { user: req.user.id },
-        { status: "offline" }
-      );
-    } else if (req.user.role === "admin" || req.user.role === "superadmin") {
-      await Admin.findOneAndUpdate(
-        { user: req.user.id },
-        { status: "offline" }
-      );
-    }
-
-    sendSuccess(res, null, "Logged out successfully", 200);
+    const { driverId } = req.params;
+    await Driver.findByIdAndUpdate(driverId, { status: "offline" });
+    sendSuccess(res, null, "Driver logged out successfully", 200);
   } catch (err) {
-    console.error("Logout error:", err);
+    console.error("Logout driver error:", err);
+    sendError(res, "Logout failed", 500);
+  }
+};
+
+// ================= LOGOUT RIDER =================
+exports.logoutRider = async (req, res) => {
+  try {
+    const { riderId } = req.params;
+    await Rider.findByIdAndUpdate(riderId, { status: "offline" });
+    sendSuccess(res, null, "Rider logged out successfully", 200);
+  } catch (err) {
+    console.error("Logout rider error:", err);
+    sendError(res, "Logout failed", 500);
+  }
+};
+
+// ================= LOGOUT ADMIN =================
+exports.logoutAdmin = async (req, res) => {
+  try {
+    const { adminId } = req.params;
+    await Admin.findByIdAndUpdate(adminId, { status: "offline" });
+    sendSuccess(res, null, "Admin logged out successfully", 200);
+  } catch (err) {
+    console.error("Logout admin error:", err);
+    sendError(res, "Logout failed", 500);
+  }
+};
+
+// ================= LOGOUT SUBADMIN =================
+exports.logoutSubadmin = async (req, res) => {
+  try {
+    const { subadminId } = req.params;
+    const admin = await Admin.findById(subadminId);
+    if (!admin || admin.adminType !== "subadmin") {
+      return sendError(res, "Subadmin not found", 404);
+    }
+    await Admin.findByIdAndUpdate(subadminId, { status: "offline" });
+    sendSuccess(res, null, "Subadmin logged out successfully", 200);
+  } catch (err) {
+    console.error("Logout subadmin error:", err);
+    sendError(res, "Logout failed", 500);
+  }
+};
+
+// ================= LOGOUT SUPERADMIN =================
+exports.logoutSuperadmin = async (req, res) => {
+  try {
+    const { superadminId } = req.params;
+    const admin = await Admin.findById(superadminId);
+    if (!admin || admin.adminType !== "superadmin") {
+      return sendError(res, "Superadmin not found", 404);
+    }
+    await Admin.findByIdAndUpdate(superadminId, { status: "offline" });
+    sendSuccess(res, null, "Superadmin logged out successfully", 200);
+  } catch (err) {
+    console.error("Logout superadmin error:", err);
     sendError(res, "Logout failed", 500);
   }
 };

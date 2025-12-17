@@ -329,9 +329,12 @@ exports.createDriver = async (req, res) => {
       return sendError(res, "Email already registered", 409);
     }
 
+    // Sanitize username: replace spaces with underscores and lowercase
+    const sanitizedUsername = username.replace(/\s+/g, "_").toLowerCase();
+
     // Check if username already exists
     const existingUsername = await User.findOne({
-      username: username.toLowerCase(),
+      username: sanitizedUsername,
     });
     if (existingUsername) {
       return sendError(res, "Username already taken", 409);
@@ -339,7 +342,7 @@ exports.createDriver = async (req, res) => {
 
     // Create user
     const user = await User.create({
-      username: username.toLowerCase(),
+      username: sanitizedUsername,
       fullName,
       email: email.toLowerCase(),
       phone,
@@ -516,9 +519,12 @@ exports.createAdmin = async (req, res) => {
       return sendError(res, "Email already registered", 409);
     }
 
+    // Sanitize username: replace spaces with underscores and lowercase
+    const sanitizedUsername = username.replace(/\s+/g, "_").toLowerCase();
+
     // Create user
     const user = await User.create({
-      username,
+      username: sanitizedUsername,
       fullName,
       email,
       phone,
@@ -616,6 +622,60 @@ exports.getAdmins = async (req, res) => {
   } catch (err) {
     console.error("Get admins error:", err);
     sendError(res, "Failed to retrieve admins", 500);
+  }
+};
+
+// Get comprehensive admin details by ID
+exports.getAdminDetails = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const admin = await Admin.findById(id)
+      .populate(
+        "user",
+        "fullName email phone username profilePicture address dateOfBirth preferences isVerified createdAt updatedAt"
+      )
+      .populate("assignedPermissions.permissionId")
+      .populate("assignedRoles");
+
+    if (!admin) {
+      return sendError(res, "Admin not found", 404);
+    }
+
+    // Comprehensive admin details
+    const adminDetails = {
+      adminId: admin._id,
+      userId: admin.user,
+      adminType: admin.adminType,
+      onlineStatus: admin.status,
+      activeStatus: admin.activeStatus,
+      assignedPermissions: admin.assignedPermissions,
+      assignedRoles: admin.assignedRoles,
+      createdAt: admin.createdAt,
+      updatedAt: admin.updatedAt,
+      // User data
+      username: admin.user.username,
+      fullName: admin.user.fullName,
+      email: admin.user.email,
+      phone: admin.user.phone,
+      profilePicture: admin.user.profilePicture,
+      address: admin.user.address,
+      dateOfBirth: admin.user.dateOfBirth,
+      preferences: admin.user.preferences,
+      isVerified: admin.user.isVerified,
+      userCreatedAt: admin.user.createdAt,
+      userUpdatedAt: admin.user.updatedAt,
+    };
+
+    sendSuccess(
+      res,
+      { admin: adminDetails },
+      "Admin details retrieved successfully",
+      200
+    );
+  } catch (err) {
+    console.error("Get admin details error:", err);
+    sendError(res, "Failed to retrieve admin details", 500);
   }
 };
 
@@ -1094,13 +1154,6 @@ exports.getUnverifiedDrivers = async (req, res) => {
 // Get all drivers with pagination and filtering
 exports.getDrivers = async (req, res) => {
   try {
-    const userId = req.user.id;
-    const userAdmin = await Admin.findOne({ user: userId });
-
-    if (!userAdmin) {
-      return sendError(res, "Admin profile not found", 404);
-    }
-
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 10;
     const skip = (page - 1) * limit;
@@ -1185,13 +1238,16 @@ exports.getDrivers = async (req, res) => {
   }
 };
 
-// Get driver details by ID
+// Get comprehensive driver details by ID
 exports.getDriverDetails = async (req, res) => {
   try {
     const { driverId } = req.params;
 
     const driver = await Driver.findById(driverId)
-      .populate("user", "fullName email phone username")
+      .populate(
+        "user",
+        "fullName email phone username profilePicture address dateOfBirth preferences isVerified createdAt updatedAt"
+      )
       .populate("rejectedBy", "fullName")
       .populate("documents.drivingLicenseFront.verifiedBy", "fullName")
       .populate("documents.drivingLicenseBack.verifiedBy", "fullName")
@@ -1206,7 +1262,134 @@ exports.getDriverDetails = async (req, res) => {
       return sendError(res, "Driver not found", 404);
     }
 
-    sendSuccess(res, { driver }, "Driver details retrieved successfully", 200);
+    // Calculate earnings
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+
+    const todaysEarningsAgg = await Ride.aggregate([
+      {
+        $match: {
+          driver: driver._id,
+          status: "completed",
+          updatedAt: { $gte: today, $lt: tomorrow },
+        },
+      },
+      { $group: { _id: null, total: { $sum: "$fare" } } },
+    ]);
+    const todaysEarnings =
+      todaysEarningsAgg.length > 0 ? todaysEarningsAgg[0].total : 0;
+
+    // Weekly earnings (last 7 days)
+    const weekAgo = new Date();
+    weekAgo.setDate(weekAgo.getDate() - 7);
+    const weeklyEarningsAgg = await Ride.aggregate([
+      {
+        $match: {
+          driver: driver._id,
+          status: "completed",
+          updatedAt: { $gte: weekAgo },
+        },
+      },
+      { $group: { _id: null, total: { $sum: "$fare" } } },
+    ]);
+    const weeklyEarnings =
+      weeklyEarningsAgg.length > 0 ? weeklyEarningsAgg[0].total : 0;
+
+    // Monthly earnings (last 30 days)
+    const monthAgo = new Date();
+    monthAgo.setDate(monthAgo.getDate() - 30);
+    const monthlyEarningsAgg = await Ride.aggregate([
+      {
+        $match: {
+          driver: driver._id,
+          status: "completed",
+          updatedAt: { $gte: monthAgo },
+        },
+      },
+      { $group: { _id: null, total: { $sum: "$fare" } } },
+    ]);
+    const monthlyEarnings =
+      monthlyEarningsAgg.length > 0 ? monthlyEarningsAgg[0].total : 0;
+
+    // Total earnings
+    const totalEarningsAgg = await Ride.aggregate([
+      {
+        $match: {
+          driver: driver._id,
+          status: "completed",
+        },
+      },
+      { $group: { _id: null, total: { $sum: "$fare" } } },
+    ]);
+    const totalEarnings =
+      totalEarningsAgg.length > 0 ? totalEarningsAgg[0].total : 0;
+
+    // Ride stats
+    const totalRides = await Ride.countDocuments({ driver: driver._id });
+    const completedRides = await Ride.countDocuments({
+      driver: driver._id,
+      status: "completed",
+    });
+    const cancelledRides = await Ride.countDocuments({
+      driver: driver._id,
+      status: "cancelled",
+    });
+
+    // Comprehensive driver details
+    const driverDetails = {
+      driverId: driver._id,
+      userId: driver.user,
+      licenseNumber: driver.licenseNumber,
+      vehicle: driver.vehicle,
+      vehicleModel: driver.vehicleModel,
+      vehicleYear: driver.vehicleYear,
+      vehicleColor: driver.vehicleColor,
+      vehicleType: driver.vehicleType,
+      numberPlateOfVehicle: driver.numberPlateOfVehicle,
+      photo: driver.photo,
+      documents: driver.documents,
+      onlineStatus: driver.status,
+      verificationStatus: driver.verificationStatus,
+      isApproved: driver.isApproved,
+      rejectionCount: driver.rejectionCount,
+      rejectionMessage: driver.rejectionMessage,
+      lastRejectedAt: driver.lastRejectedAt,
+      rejectedBy: driver.rejectedBy,
+      rating: driver.rating,
+      activeStatus: driver.activeStatus,
+      createdAt: driver.createdAt,
+      updatedAt: driver.updatedAt,
+      // Earnings report
+      todaysEarnings,
+      weeklyEarnings,
+      monthlyEarnings,
+      totalEarnings,
+      // Dashboard
+      totalRides,
+      completedRides,
+      cancelledRides,
+      // User data
+      username: driver.user.username,
+      fullName: driver.user.fullName,
+      email: driver.user.email,
+      phone: driver.user.phone,
+      profilePicture: driver.user.profilePicture,
+      address: driver.user.address,
+      dateOfBirth: driver.user.dateOfBirth,
+      preferences: driver.user.preferences,
+      isVerified: driver.user.isVerified,
+      userCreatedAt: driver.user.createdAt,
+      userUpdatedAt: driver.user.updatedAt,
+    };
+
+    sendSuccess(
+      res,
+      { driver: driverDetails },
+      "Driver details retrieved successfully",
+      200
+    );
   } catch (err) {
     console.error("Get driver details error:", err);
     sendError(res, "Failed to retrieve driver details", 500);
@@ -1218,6 +1401,11 @@ exports.updateDriverProfile = async (req, res) => {
   try {
     const { driverId } = req.params;
     const {
+      username,
+      fullName,
+      email,
+      phone,
+      password,
       licenseNumber,
       vehicle,
       vehicleModel,
@@ -1249,6 +1437,58 @@ exports.updateDriverProfile = async (req, res) => {
       }
     }
 
+    // Validate User profile fields if provided
+    if (username) {
+      if (username.length < 3 || username.length > 30) {
+        return sendError(
+          res,
+          "Username must be between 3 and 30 characters",
+          400
+        );
+      }
+      if (!/^[a-zA-Z0-9_]+$/.test(username)) {
+        return sendError(
+          res,
+          "Username can only contain letters, numbers, and underscores",
+          400
+        );
+      }
+      // Check uniqueness
+      const existingUsername = await User.findOne({
+        username: username.toLowerCase(),
+        _id: { $ne: targetDriver.user },
+      });
+      if (existingUsername) {
+        return sendError(res, "Username already taken", 409);
+      }
+    }
+
+    if (email) {
+      // Check uniqueness
+      const existingEmail = await User.findOne({
+        email: email.toLowerCase(),
+        _id: { $ne: targetDriver.user },
+      });
+      if (existingEmail) {
+        return sendError(res, "Email already registered", 409);
+      }
+    }
+
+    if (phone) {
+      const phoneRegex = /^\d{11}$/;
+      if (!phoneRegex.test(phone)) {
+        return sendError(res, "Phone must be exactly 11 digits", 400);
+      }
+      // Check uniqueness
+      const existingPhone = await User.findOne({
+        phone,
+        _id: { $ne: targetDriver.user },
+      });
+      if (existingPhone) {
+        return sendError(res, "Phone already registered", 409);
+      }
+    }
+
     // Validate license number uniqueness if changed
     if (licenseNumber && licenseNumber !== targetDriver.licenseNumber) {
       const existingLicense = await Driver.findOne({
@@ -1272,6 +1512,17 @@ exports.updateDriverProfile = async (req, res) => {
       if (existingPlate) {
         return sendError(res, "Number plate already registered", 409);
       }
+    }
+
+    // Prepare User updates
+    const userUpdates = {};
+    if (fullName) userUpdates.fullName = fullName;
+    if (username) userUpdates.username = username.toLowerCase();
+    if (email) userUpdates.email = email.toLowerCase();
+    if (phone) userUpdates.phone = phone;
+    if (password) {
+      const saltRounds = 10;
+      userUpdates.password = await bcrypt.hash(password, saltRounds);
     }
 
     // Update driver fields
@@ -1298,15 +1549,28 @@ exports.updateDriverProfile = async (req, res) => {
     if (status !== undefined) updateFields.status = status;
 
     // Check if any updates were provided
-    if (Object.keys(updateFields).length === 0) {
+    if (
+      Object.keys(userUpdates).length === 0 &&
+      Object.keys(updateFields).length === 0
+    ) {
       return sendError(res, "No valid updates provided", 400);
     }
 
-    const updatedDriver = await Driver.findByIdAndUpdate(
-      driverId,
-      updateFields,
-      { new: true }
-    ).populate("user", "fullName email phone");
+    // Update User if there are user updates
+    if (Object.keys(userUpdates).length > 0) {
+      await User.findByIdAndUpdate(targetDriver.user, userUpdates);
+    }
+
+    // Update Driver if there are driver updates
+    let updatedDriver = targetDriver;
+    if (Object.keys(updateFields).length > 0) {
+      updatedDriver = await Driver.findByIdAndUpdate(driverId, updateFields, {
+        new: true,
+      });
+    }
+
+    // Populate user data for response
+    await updatedDriver.populate("user", "fullName email phone username");
 
     sendSuccess(
       res,
@@ -1537,13 +1801,6 @@ exports.unsuspendRider = async (req, res) => {
 // Get all riders with pagination and filtering
 exports.getRiders = async (req, res) => {
   try {
-    const userId = req.user.id;
-    const userAdmin = await Admin.findOne({ user: userId });
-
-    if (!userAdmin) {
-      return sendError(res, "Admin profile not found", 404);
-    }
-
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 10;
     const skip = (page - 1) * limit;
@@ -1625,6 +1882,94 @@ exports.getRiders = async (req, res) => {
   } catch (err) {
     console.error("Get riders error:", err);
     sendError(res, "Failed to retrieve riders", 500);
+  }
+};
+
+// Get comprehensive rider details by ID
+exports.getRiderDetails = async (req, res) => {
+  try {
+    const { riderId } = req.params;
+
+    const rider = await Rider.findById(riderId)
+      .populate(
+        "user",
+        "fullName email phone username profilePicture address dateOfBirth preferences isVerified createdAt updatedAt"
+      )
+      .populate("referredBy", "fullName")
+      .populate("suspendedBy", "fullName");
+
+    if (!rider) {
+      return sendError(res, "Rider not found", 404);
+    }
+
+    // Calculate total rides
+    const totalRides = await Ride.countDocuments({
+      rider: rider._id,
+      status: "completed",
+    });
+
+    // Get wallet balance
+    const Wallet = require("../models/Wallet");
+    const wallet = await Wallet.findOne({ user: rider.user._id });
+    const savedAmount = wallet ? wallet.balance : 0;
+
+    // Calculate total spent
+    const totalSpentAgg = await Ride.aggregate([
+      { $match: { rider: rider._id, status: "completed" } },
+      { $group: { _id: null, total: { $sum: "$fare" } } },
+    ]);
+    const totalSpent = totalSpentAgg.length > 0 ? totalSpentAgg[0].total : 0;
+
+    // Referral earnings
+    const referralEarnings = rider.referralStats
+      ? rider.referralStats.totalEarnedFromReferrals
+      : 0;
+
+    // Comprehensive rider details
+    const riderDetails = {
+      riderId: rider._id,
+      userId: rider.user,
+      referralCode: rider.referralCode,
+      referredBy: rider.referredBy,
+      rating: rider.rating,
+      onlineStatus: rider.status,
+      isSuspended: rider.isSuspended,
+      suspensionMessage: rider.suspensionMessage,
+      suspendedAt: rider.suspendedAt,
+      suspendedBy: rider.suspendedBy,
+      points: rider.points,
+      referralStats: rider.referralStats,
+      activeStatus: rider.activeStatus,
+      createdAt: rider.createdAt,
+      updatedAt: rider.updatedAt,
+      // Dashboard data
+      totalRides,
+      savedAmount,
+      totalSpent,
+      referralEarnings,
+      // User data
+      username: rider.user.username,
+      fullName: rider.user.fullName,
+      email: rider.user.email,
+      phone: rider.user.phone,
+      profilePicture: rider.user.profilePicture,
+      address: rider.user.address,
+      dateOfBirth: rider.user.dateOfBirth,
+      preferences: rider.user.preferences,
+      isVerified: rider.user.isVerified,
+      userCreatedAt: rider.user.createdAt,
+      userUpdatedAt: rider.user.updatedAt,
+    };
+
+    sendSuccess(
+      res,
+      { rider: riderDetails },
+      "Rider details retrieved successfully",
+      200
+    );
+  } catch (err) {
+    console.error("Get rider details error:", err);
+    sendError(res, "Failed to retrieve rider details", 500);
   }
 };
 

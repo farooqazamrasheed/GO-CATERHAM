@@ -135,6 +135,11 @@ router.get(
   checkPermission("view_riders"),
   adminController.getRiders
 );
+router.get(
+  "/riders/:riderId",
+  checkPermission("view_riders"),
+  adminController.getRiderDetails
+);
 router.put(
   "/riders/:riderId/suspend",
   parseFormData,
@@ -178,6 +183,11 @@ router.get(
   "/admins",
   checkPermission("view_admins"),
   adminController.getAdmins
+);
+router.get(
+  "/admins/:id",
+  checkPermission("view_admins"),
+  adminController.getAdminDetails
 );
 router.put(
   "/admins/:id/permissions",
