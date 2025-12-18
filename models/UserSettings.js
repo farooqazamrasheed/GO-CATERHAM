@@ -105,12 +105,4 @@ const userSettingsSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-// Limit emergency contacts to 3
-userSettingsSchema.pre("save", function (next) {
-  if (this.emergencyContacts && this.emergencyContacts.length > 3) {
-    return next(new Error("Maximum 3 emergency contacts allowed"));
-  }
-  next();
-});
-
 module.exports = mongoose.model("UserSettings", userSettingsSchema);

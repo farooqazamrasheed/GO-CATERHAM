@@ -183,6 +183,16 @@ function generateEstimateId() {
 // Get fare estimate
 exports.getFareEstimate = async (req, res) => {
   try {
+    // Debug logging
+    console.log("Request body:", req.body);
+    console.log("Request headers:", req.headers);
+
+    // Check if req.body exists and is an object
+    if (!req.body || typeof req.body !== "object") {
+      console.error("Invalid request body:", req.body);
+      return sendError(res, "Invalid request body format", 400);
+    }
+
     const {
       pickupLat,
       pickupLng,
@@ -193,6 +203,12 @@ exports.getFareEstimate = async (req, res) => {
       vehicleType,
     } = req.body;
 
+    // Convert string values to appropriate types (for form-data)
+    const pickupLatNum = parseFloat(pickupLat);
+    const pickupLngNum = parseFloat(pickupLng);
+    const dropoffLatNum = parseFloat(dropoffLat);
+    const dropoffLngNum = parseFloat(dropoffLng);
+
     // Validate required fields
     if (
       !pickupLat ||
@@ -201,11 +217,15 @@ exports.getFareEstimate = async (req, res) => {
       !dropoffLat ||
       !dropoffLng ||
       !dropoffAddress ||
-      !vehicleType
+      !vehicleType ||
+      isNaN(pickupLatNum) ||
+      isNaN(pickupLngNum) ||
+      isNaN(dropoffLatNum) ||
+      isNaN(dropoffLngNum)
     ) {
       return sendError(
         res,
-        "All location and vehicle type fields are required",
+        "All location and vehicle type fields are required, and coordinates must be valid numbers",
         400
       );
     }
@@ -221,24 +241,24 @@ exports.getFareEstimate = async (req, res) => {
 
     // Calculate fare
     const fareCalculation = calculateFare(
-      pickupLat,
-      pickupLng,
-      dropoffLat,
-      dropoffLng,
+      pickupLatNum,
+      pickupLngNum,
+      dropoffLatNum,
+      dropoffLngNum,
       vehicleType
     );
 
     // Count available drivers near pickup location
     const availableDrivers = await countAvailableDrivers(
-      pickupLat,
-      pickupLng,
+      pickupLatNum,
+      pickupLngNum,
       vehicleType
     );
 
     // Calculate estimated pickup time (average of closest drivers' ETAs)
     const estimatedPickupTime = await calculateEstimatedPickupTime(
-      pickupLat,
-      pickupLng,
+      pickupLatNum,
+      pickupLngNum,
       vehicleType
     );
 
@@ -274,13 +294,13 @@ exports.getFareEstimate = async (req, res) => {
     const response = {
       estimateId,
       pickup: {
-        lat: pickupLat,
-        lng: pickupLng,
+        lat: pickupLatNum,
+        lng: pickupLngNum,
         address: pickupAddress,
       },
       dropoff: {
-        lat: dropoffLat,
-        lng: dropoffLng,
+        lat: dropoffLatNum,
+        lng: dropoffLngNum,
         address: dropoffAddress,
       },
       vehicleType,
@@ -413,6 +433,25 @@ exports.bookRide = async (req, res) => {
           socketService.notifyRideRequest(
             driverInfo.driver._id.toString(),
             ride
+          );
+
+          // Send real-time dashboard update for nearby ride requests
+          socketService.notifyNearbyRideRequests(
+            driverInfo.driver._id.toString(),
+            [
+              {
+                rideId: ride._id,
+                pickupLocation: ride.pickup,
+                dropoffLocation: ride.dropoff,
+                estimatedFare: ride.estimatedFare,
+                vehicleType: ride.vehicleType,
+                distance: driverInfo.distance,
+                estimatedTimeToPickup: driverInfo.eta,
+                expiresAt: new Date(Date.now() + 15 * 1000),
+                timeLeft: 15,
+                createdAt: ride.createdAt,
+              },
+            ]
           );
         });
 
@@ -817,6 +856,16 @@ exports.completeRide = async (req, res) => {
 
     // Send notification to rider about ride completion
     socketService.notifyRideStatus(ride.rider.toString(), "completed", ride);
+
+    // Send real-time earnings update to driver
+    socketService.notifyDriverEarningsUpdate(ride.driver._id.toString(), {
+      rideId: ride._id,
+      earnings: driverEarnings,
+      tips: ride.tips,
+      bonuses: ride.bonuses,
+      totalAmount: driverEarnings + ride.tips + ride.bonuses,
+      completedAt: ride.endTime,
+    });
 
     // Send email notification to rider
     try {

@@ -33,7 +33,6 @@ const userSchema = new mongoose.Schema(
       required: true,
     },
     // Extended profile fields
-    profilePicture: { type: String },
     address: {
       street: { type: String },
       city: { type: String },

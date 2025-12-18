@@ -1,4 +1,5 @@
 const LiveLocation = require("../models/LiveLocation");
+const socketService = require("../services/socketService");
 
 exports.updateLocation = async (req, res, next) => {
   try {
@@ -6,6 +7,14 @@ exports.updateLocation = async (req, res, next) => {
 
     const location = await LiveLocation.create({
       driver: req.user._id,
+      latitude,
+      longitude,
+      heading,
+      speed,
+    });
+
+    // Notify nearby riders about driver location update
+    socketService.notifyNearbyRidersAboutDriverUpdate(req.user._id, {
       latitude,
       longitude,
       heading,

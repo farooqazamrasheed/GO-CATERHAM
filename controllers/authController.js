@@ -283,6 +283,7 @@ exports.signup = async (req, res) => {
           user: user._id,
           referralCode: uniqueReferralCode,
           referredBy,
+          photo: null,
           activeStatus: "active",
         });
 
@@ -304,6 +305,7 @@ exports.signup = async (req, res) => {
           savedAmount: 0,
           referralCode: riderProfile.referralCode,
           referredBy: riderProfile.referredBy,
+          photo: riderProfile.photo,
         };
       } else if (role === "admin") {
         const adminProfile = await Admin.create({
@@ -553,6 +555,7 @@ exports.login = async (req, res) => {
         suspendedBy: profileData.suspendedBy,
         points: profileData.points,
         referralStats: profileData.referralStats,
+        photo: profileData.photo,
         activeStatus: profileData.activeStatus,
         createdAt: profileData.createdAt,
         updatedAt: profileData.updatedAt,
@@ -566,7 +569,6 @@ exports.login = async (req, res) => {
         fullName: user.fullName,
         email: user.email,
         phone: user.phone,
-        profilePicture: user.profilePicture,
         address: user.address,
         dateOfBirth: user.dateOfBirth,
         preferences: user.preferences,
@@ -688,7 +690,6 @@ exports.login = async (req, res) => {
         fullName: user.fullName,
         email: user.email,
         phone: user.phone,
-        profilePicture: user.profilePicture,
         address: user.address,
         dateOfBirth: user.dateOfBirth,
         preferences: user.preferences,
@@ -720,7 +721,6 @@ exports.login = async (req, res) => {
         fullName: user.fullName,
         email: user.email,
         phone: user.phone,
-        profilePicture: user.profilePicture,
         address: user.address,
         dateOfBirth: user.dateOfBirth,
         preferences: user.preferences,

@@ -30,16 +30,65 @@ router.post("/reset-password", parseFormData, authController.resetPassword);
 
 // Active status management
 router.post(
-  "/deactivate",
+  "/activate/rider/:riderId",
   auth,
   parseFormData,
-  profileController.deactivateAccount
+  profileController.activateRider
 );
 router.post(
-  "/activate",
+  "/activate/driver/:driverId",
   auth,
   parseFormData,
-  profileController.activateAccount
+  profileController.activateDriver
+);
+router.post(
+  "/activate/admin/:adminId",
+  auth,
+  parseFormData,
+  profileController.activateAdmin
+);
+router.post(
+  "/activate/subadmin/:subadminId",
+  auth,
+  parseFormData,
+  profileController.activateSubadmin
+);
+router.post(
+  "/activate/superadmin/:superadminId",
+  auth,
+  parseFormData,
+  profileController.activateSuperadmin
+);
+
+router.post(
+  "/deactivate/rider/:riderId",
+  auth,
+  parseFormData,
+  profileController.deactivateRider
+);
+router.post(
+  "/deactivate/driver/:driverId",
+  auth,
+  parseFormData,
+  profileController.deactivateDriver
+);
+router.post(
+  "/deactivate/admin/:adminId",
+  auth,
+  parseFormData,
+  profileController.deactivateAdmin
+);
+router.post(
+  "/deactivate/subadmin/:subadminId",
+  auth,
+  parseFormData,
+  profileController.deactivateSubadmin
+);
+router.post(
+  "/deactivate/superadmin/:superadminId",
+  auth,
+  parseFormData,
+  profileController.deactivateSuperadmin
 );
 
 module.exports = router;

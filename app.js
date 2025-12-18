@@ -23,12 +23,13 @@ const app = express();
 
 // Middlewares
 app.use(cors());
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+app.use(express.json({ limit: "10mb" }));
+app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 app.use(morgan("dev"));
 
 // Routes
 app.use("/api/v1/auth", authRoutes);
+app.use("/api/v1/riders/profile", profileRoutes);
 app.use("/api/v1/riders", riderRoutes);
 app.use("/api/v1/drivers", driverRoutes);
 app.use("/api/v1/vehicles", vehicleRoutes);
@@ -41,7 +42,6 @@ app.use("/api/v1/roles", roleRoutes);
 app.use("/api/v1/permissions", permissionRoutes);
 app.use("/api/v1/documents", documentRoutes);
 app.use("/api/v1/rewards", rewardsRoutes);
-app.use("/api/v1/riders/profile", profileRoutes);
 app.use("/api/v1/riders/location", riderLiveLocationRoutes);
 
 // Serve uploaded files statically

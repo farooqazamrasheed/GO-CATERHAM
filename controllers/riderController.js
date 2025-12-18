@@ -5,6 +5,8 @@ const Rider = require("../models/Rider");
 const Driver = require("../models/Driver");
 const LiveLocation = require("../models/LiveLocation");
 const { sendSuccess, sendError } = require("../utils/responseHelper");
+const path = require("path");
+const fs = require("fs");
 
 // Surrey boundary coordinates (approximate polygon for Surrey, UK)
 const SURREY_BOUNDARY = {
@@ -350,6 +352,95 @@ exports.getDashboard = async (req, res) => {
   }
 };
 
+// Upload rider photo
+exports.uploadPhoto = async (req, res) => {
+  try {
+    if (!req.file) {
+      return sendError(res, "No photo file provided", 400);
+    }
+
+    const rider = await Rider.findOne({ user: req.user.id });
+    if (!rider) {
+      return sendError(res, "Rider profile not found", 404);
+    }
+
+    // Validate file type
+    const allowedTypes = ["image/jpeg", "image/jpg", "image/png"];
+
+    if (!allowedTypes.includes(req.file.mimetype)) {
+      return sendError(
+        res,
+        "Invalid file type. Only JPEG, JPG, and PNG are allowed",
+        400
+      );
+    }
+
+    // Validate file size (max 5MB)
+    const maxSize = 5 * 1024 * 1024; // 5MB
+    if (req.file.size > maxSize) {
+      return sendError(res, "File too large. Maximum size is 5MB", 400);
+    }
+
+    // Update rider photo information
+    rider.photo = {
+      url: `/uploads/riders/${req.file.filename}`,
+      filename: req.file.filename,
+      uploadedAt: new Date(),
+      mimetype: req.file.mimetype,
+      size: req.file.size,
+    };
+
+    await rider.save();
+
+    sendSuccess(
+      res,
+      {
+        photo: rider.photo,
+      },
+      "Photo uploaded successfully",
+      200
+    );
+  } catch (error) {
+    console.error("Upload photo error:", error);
+    sendError(res, "Failed to upload photo", 500);
+  }
+};
+
+// Get rider photo
+exports.getPhoto = async (req, res) => {
+  try {
+    const { riderId } = req.params;
+
+    const rider = await Rider.findById(riderId);
+    if (!rider || !rider.photo || !rider.photo.filename) {
+      return sendError(res, "Photo not found", 404);
+    }
+
+    const photoPath = path.join(
+      __dirname,
+      "../uploads/riders",
+      rider.photo.filename
+    );
+
+    // Check if file exists
+    if (!fs.existsSync(photoPath)) {
+      return sendError(res, "Photo file not found", 404);
+    }
+
+    // Set appropriate headers
+    res.setHeader("Content-Type", rider.photo.mimetype);
+    res.setHeader("Content-Length", rider.photo.size);
+    res.setHeader("Cache-Control", "public, max-age=86400"); // Cache for 24 hours
+
+    // Stream the file
+    const fileStream = fs.createReadStream(photoPath);
+    fileStream.pipe(res);
+  } catch (error) {
+    console.error("Get photo error:", error);
+    sendError(res, "Failed to retrieve photo", 500);
+  }
+};
+
 // Helper function to get nearby available drivers
 async function getNearbyDrivers(userLat, userLon) {
   try {
@@ -391,8 +482,8 @@ async function getNearbyDrivers(userLat, userLon) {
         location.longitude
       );
 
-      // Only include drivers within 50km
-      if (distance <= 50) {
+      // Only include drivers within 12km
+      if (distance <= 12) {
         // Calculate ETA (estimated time of arrival)
         const eta = calculateETA(distance, location.speed || 30);
 

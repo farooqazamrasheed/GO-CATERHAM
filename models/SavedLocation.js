@@ -50,18 +50,6 @@ const savedLocationSchema = new mongoose.Schema(
 // Ensure only one default location per type per rider
 savedLocationSchema.index({ rider: 1, name: 1 }, { unique: true });
 
-// Allow multiple favorites but limit to reasonable number
-savedLocationSchema.pre("save", async function (next) {
-  if (this.name === "favorite") {
-    const count = await mongoose.model("SavedLocation").countDocuments({
-      rider: this.rider,
-      name: "favorite",
-    });
-    if (count >= 10) {
-      return next(new Error("Maximum 10 favorite locations allowed"));
-    }
-  }
-  next();
-});
+// Validation moved to controller level to avoid pre-save hook issues
 
 module.exports = mongoose.model("SavedLocation", savedLocationSchema);

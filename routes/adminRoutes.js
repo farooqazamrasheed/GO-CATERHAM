@@ -106,6 +106,16 @@ router.post(
   checkPermission("manage_drivers"),
   ...adminController.uploadDriverPhoto
 );
+router.put(
+  "/drivers/:driverId/activate",
+  checkPermission("manage_drivers"),
+  adminController.activateDriverAccount
+);
+router.put(
+  "/drivers/:driverId/deactivate",
+  checkPermission("manage_drivers"),
+  adminController.deactivateDriverAccount
+);
 
 // Admin status - any admin role
 router.put(
@@ -150,6 +160,16 @@ router.put(
   "/riders/:riderId/unsuspend",
   checkPermission("manage_riders"),
   adminController.unsuspendRider
+);
+router.put(
+  "/riders/:riderId/activate",
+  checkPermission("manage_riders"),
+  adminController.activateRiderAccount
+);
+router.put(
+  "/riders/:riderId/deactivate",
+  checkPermission("manage_riders"),
+  adminController.deactivateRiderAccount
 );
 
 // Ride management - view rides
@@ -208,6 +228,16 @@ router.delete(
   checkPermission("delete_admin"),
   auditLoggers.deleteAdmin,
   adminController.deleteAdmin
+);
+router.put(
+  "/admins/:adminId/activate",
+  checkPermission("manage_admin_permissions"),
+  adminController.activateAdminAccount
+);
+router.put(
+  "/admins/:adminId/deactivate",
+  checkPermission("manage_admin_permissions"),
+  adminController.deactivateAdminAccount
 );
 
 // Active status history - combined

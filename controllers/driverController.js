@@ -217,6 +217,10 @@ exports.updateStatus = async (req, res) => {
       return sendError(res, "Driver profile not found", 404);
     }
 
+    // Real-time notification for status update
+    const socketService = require("../services/socketService");
+    socketService.notifyDriverStatusUpdate(driver._id.toString(), status);
+
     sendSuccess(res, { driver }, "Status updated successfully", 200);
   } catch (error) {
     console.error("Update status error:", error);
@@ -264,6 +268,7 @@ exports.updateProfile = async (req, res) => {
       vehicleType,
       numberPlateOfVehicle,
       licenseExpiryDate,
+      licenseNumber,
     } = req.body;
 
     // Find the driver
@@ -308,6 +313,10 @@ exports.updateProfile = async (req, res) => {
     }
 
     if (phone !== undefined) {
+      const phoneRegex = /^\d{11}$/;
+      if (!phoneRegex.test(phone)) {
+        return sendError(res, "Phone must be exactly 11 digits", 400);
+      }
       user.phone = phone;
     }
 
@@ -359,8 +368,16 @@ exports.updateProfile = async (req, res) => {
       driver.numberPlateOfVehicle = numberPlateOfVehicle;
     }
 
-    if (licenseExpiryDate !== undefined) {
-      driver.licenseExpiryDate = new Date(licenseExpiryDate);
+    if (licenseNumber !== undefined) {
+      // Check if license number is already taken by another driver
+      const existingDriver = await Driver.findOne({
+        licenseNumber,
+        _id: { $ne: driver._id },
+      });
+      if (existingDriver) {
+        return sendError(res, "License number already registered", 409);
+      }
+      driver.licenseNumber = licenseNumber;
     }
 
     // Save changes

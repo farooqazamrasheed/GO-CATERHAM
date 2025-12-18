@@ -633,7 +633,7 @@ exports.getAdminDetails = async (req, res) => {
     const admin = await Admin.findById(id)
       .populate(
         "user",
-        "fullName email phone username profilePicture address dateOfBirth preferences isVerified createdAt updatedAt"
+        "fullName email phone username address dateOfBirth preferences isVerified createdAt updatedAt"
       )
       .populate("assignedPermissions.permissionId")
       .populate("assignedRoles");
@@ -658,7 +658,6 @@ exports.getAdminDetails = async (req, res) => {
       fullName: admin.user.fullName,
       email: admin.user.email,
       phone: admin.user.phone,
-      profilePicture: admin.user.profilePicture,
       address: admin.user.address,
       dateOfBirth: admin.user.dateOfBirth,
       preferences: admin.user.preferences,
@@ -1246,7 +1245,7 @@ exports.getDriverDetails = async (req, res) => {
     const driver = await Driver.findById(driverId)
       .populate(
         "user",
-        "fullName email phone username profilePicture address dateOfBirth preferences isVerified createdAt updatedAt"
+        "fullName email phone username address dateOfBirth preferences isVerified createdAt updatedAt"
       )
       .populate("rejectedBy", "fullName")
       .populate("documents.drivingLicenseFront.verifiedBy", "fullName")
@@ -1375,7 +1374,6 @@ exports.getDriverDetails = async (req, res) => {
       fullName: driver.user.fullName,
       email: driver.user.email,
       phone: driver.user.phone,
-      profilePicture: driver.user.profilePicture,
       address: driver.user.address,
       dateOfBirth: driver.user.dateOfBirth,
       preferences: driver.user.preferences,
@@ -1893,7 +1891,7 @@ exports.getRiderDetails = async (req, res) => {
     const rider = await Rider.findById(riderId)
       .populate(
         "user",
-        "fullName email phone username profilePicture address dateOfBirth preferences isVerified createdAt updatedAt"
+        "fullName email phone username address dateOfBirth preferences isVerified createdAt updatedAt"
       )
       .populate("referredBy", "fullName")
       .populate("suspendedBy", "fullName");
@@ -1952,7 +1950,6 @@ exports.getRiderDetails = async (req, res) => {
       fullName: rider.user.fullName,
       email: rider.user.email,
       phone: rider.user.phone,
-      profilePicture: rider.user.profilePicture,
       address: rider.user.address,
       dateOfBirth: rider.user.dateOfBirth,
       preferences: rider.user.preferences,
@@ -2297,6 +2294,340 @@ exports.getRiderActiveHistory = async (req, res) => {
   } catch (err) {
     console.error("Get rider active history error:", err);
     sendError(res, "Failed to retrieve rider active status history", 500);
+  }
+};
+
+// Activate driver account (admin function)
+exports.activateDriverAccount = async (req, res) => {
+  try {
+    const { driverId } = req.params;
+    const userId = req.user.id;
+
+    const targetDriver = await Driver.findById(driverId);
+    if (!targetDriver) {
+      return sendError(res, "Driver not found", 404);
+    }
+
+    const currentAdmin = await Admin.findOne({ user: userId });
+    if (!currentAdmin) {
+      return sendError(res, "Admin profile not found", 404);
+    }
+
+    // Permission checks - subadmin can activate, admin can, superadmin can
+    // No restrictions for activation
+
+    // Update activeStatus
+    await Driver.findByIdAndUpdate(driverId, { activeStatus: "active" });
+
+    // Create history
+    const historyData = {
+      userId: targetDriver.user,
+      userType: "driver",
+      action: "activate",
+      performedBy: userId,
+    };
+    historyData.driverId = driverId;
+    await ActiveStatusHistory.create(historyData);
+
+    // Emit socket event
+    const io = req.app.get("io");
+    if (io) {
+      io.emit("activeStatusChanged", {
+        userId: targetDriver.user,
+        userType: "driver",
+        action: "activate",
+        timestamp: new Date(),
+        performedBy: userId,
+      });
+    }
+
+    sendSuccess(
+      res,
+      { timestamp: new Date() },
+      "Driver account activated successfully",
+      200
+    );
+  } catch (err) {
+    console.error("Activate driver account error:", err);
+    sendError(res, "Failed to activate driver account", 500);
+  }
+};
+
+// Deactivate driver account (admin function)
+exports.deactivateDriverAccount = async (req, res) => {
+  try {
+    const { driverId } = req.params;
+    const userId = req.user.id;
+
+    const targetDriver = await Driver.findById(driverId);
+    if (!targetDriver) {
+      return sendError(res, "Driver not found", 404);
+    }
+
+    const currentAdmin = await Admin.findOne({ user: userId });
+    if (!currentAdmin) {
+      return sendError(res, "Admin profile not found", 404);
+    }
+
+    // Permission checks - subadmin can deactivate, admin can, superadmin can
+    // No restrictions for deactivation
+
+    // Update activeStatus
+    await Driver.findByIdAndUpdate(driverId, { activeStatus: "deactive" });
+
+    // Create history
+    const historyData = {
+      userId: targetDriver.user,
+      userType: "driver",
+      action: "deactivate",
+      performedBy: userId,
+    };
+    historyData.driverId = driverId;
+    await ActiveStatusHistory.create(historyData);
+
+    // Emit socket event
+    const io = req.app.get("io");
+    if (io) {
+      io.emit("activeStatusChanged", {
+        userId: targetDriver.user,
+        userType: "driver",
+        action: "deactivate",
+        timestamp: new Date(),
+        performedBy: userId,
+      });
+    }
+
+    sendSuccess(
+      res,
+      { timestamp: new Date() },
+      "Driver account deactivated successfully",
+      200
+    );
+  } catch (err) {
+    console.error("Deactivate driver account error:", err);
+    sendError(res, "Failed to deactivate driver account", 500);
+  }
+};
+
+// Activate rider account (admin function)
+exports.activateRiderAccount = async (req, res) => {
+  try {
+    const { riderId } = req.params;
+    const userId = req.user.id;
+
+    const targetRider = await Rider.findById(riderId);
+    if (!targetRider) {
+      return sendError(res, "Rider not found", 404);
+    }
+
+    const currentAdmin = await Admin.findOne({ user: userId });
+    if (!currentAdmin) {
+      return sendError(res, "Admin profile not found", 404);
+    }
+
+    // Update activeStatus
+    await Rider.findByIdAndUpdate(riderId, { activeStatus: "active" });
+
+    // Create history
+    const historyData = {
+      userId: targetRider.user,
+      userType: "rider",
+      action: "activate",
+      performedBy: userId,
+    };
+    historyData.riderId = riderId;
+    await ActiveStatusHistory.create(historyData);
+
+    // Emit socket event
+    const io = req.app.get("io");
+    if (io) {
+      io.emit("activeStatusChanged", {
+        userId: targetRider.user,
+        userType: "rider",
+        action: "activate",
+        timestamp: new Date(),
+        performedBy: userId,
+      });
+    }
+
+    sendSuccess(
+      res,
+      { timestamp: new Date() },
+      "Rider account activated successfully",
+      200
+    );
+  } catch (err) {
+    console.error("Activate rider account error:", err);
+    sendError(res, "Failed to activate rider account", 500);
+  }
+};
+
+// Deactivate rider account (admin function)
+exports.deactivateRiderAccount = async (req, res) => {
+  try {
+    const { riderId } = req.params;
+    const userId = req.user.id;
+
+    const targetRider = await Rider.findById(riderId);
+    if (!targetRider) {
+      return sendError(res, "Rider not found", 404);
+    }
+
+    const currentAdmin = await Admin.findOne({ user: userId });
+    if (!currentAdmin) {
+      return sendError(res, "Admin profile not found", 404);
+    }
+
+    // Update activeStatus
+    await Rider.findByIdAndUpdate(riderId, { activeStatus: "deactive" });
+
+    // Create history
+    const historyData = {
+      userId: targetRider.user,
+      userType: "rider",
+      action: "deactivate",
+      performedBy: userId,
+    };
+    historyData.riderId = riderId;
+    await ActiveStatusHistory.create(historyData);
+
+    // Emit socket event
+    const io = req.app.get("io");
+    if (io) {
+      io.emit("activeStatusChanged", {
+        userId: targetRider.user,
+        userType: "rider",
+        action: "deactivate",
+        timestamp: new Date(),
+        performedBy: userId,
+      });
+    }
+
+    sendSuccess(
+      res,
+      { timestamp: new Date() },
+      "Rider account deactivated successfully",
+      200
+    );
+  } catch (err) {
+    console.error("Deactivate rider account error:", err);
+    sendError(res, "Failed to deactivate rider account", 500);
+  }
+};
+
+// Activate admin account (admin function)
+exports.activateAdminAccount = async (req, res) => {
+  try {
+    const { adminId } = req.params;
+    const userId = req.user.id;
+
+    const targetAdmin = await Admin.findById(adminId);
+    if (!targetAdmin) {
+      return sendError(res, "Admin not found", 404);
+    }
+
+    const currentAdmin = await Admin.findOne({ user: userId });
+    if (!currentAdmin) {
+      return sendError(res, "Current admin profile not found", 404);
+    }
+
+    // Permission checks - only superadmin can activate admin accounts
+    if (currentAdmin.adminType !== "superadmin") {
+      return sendError(res, "Only superadmin can manage admin accounts", 403);
+    }
+
+    // Update activeStatus
+    await Admin.findByIdAndUpdate(adminId, { activeStatus: "active" });
+
+    // Create history
+    const historyData = {
+      userId: targetAdmin.user,
+      userType: "admin",
+      action: "activate",
+      performedBy: userId,
+    };
+    historyData.adminId = adminId;
+    await ActiveStatusHistory.create(historyData);
+
+    // Emit socket event
+    const io = req.app.get("io");
+    if (io) {
+      io.emit("activeStatusChanged", {
+        userId: targetAdmin.user,
+        userType: "admin",
+        action: "activate",
+        timestamp: new Date(),
+        performedBy: userId,
+      });
+    }
+
+    sendSuccess(
+      res,
+      { timestamp: new Date() },
+      "Admin account activated successfully",
+      200
+    );
+  } catch (err) {
+    console.error("Activate admin account error:", err);
+    sendError(res, "Failed to activate admin account", 500);
+  }
+};
+
+// Deactivate admin account (admin function)
+exports.deactivateAdminAccount = async (req, res) => {
+  try {
+    const { adminId } = req.params;
+    const userId = req.user.id;
+
+    const targetAdmin = await Admin.findById(adminId);
+    if (!targetAdmin) {
+      return sendError(res, "Admin not found", 404);
+    }
+
+    const currentAdmin = await Admin.findOne({ user: userId });
+    if (!currentAdmin) {
+      return sendError(res, "Current admin profile not found", 404);
+    }
+
+    // Permission checks - only superadmin can deactivate admin accounts
+    if (currentAdmin.adminType !== "superadmin") {
+      return sendError(res, "Only superadmin can manage admin accounts", 403);
+    }
+
+    // Update activeStatus
+    await Admin.findByIdAndUpdate(adminId, { activeStatus: "deactive" });
+
+    // Create history
+    const historyData = {
+      userId: targetAdmin.user,
+      userType: "admin",
+      action: "deactivate",
+      performedBy: userId,
+    };
+    historyData.adminId = adminId;
+    await ActiveStatusHistory.create(historyData);
+
+    // Emit socket event
+    const io = req.app.get("io");
+    if (io) {
+      io.emit("activeStatusChanged", {
+        userId: targetAdmin.user,
+        userType: "admin",
+        action: "deactivate",
+        timestamp: new Date(),
+        performedBy: userId,
+      });
+    }
+
+    sendSuccess(
+      res,
+      { timestamp: new Date() },
+      "Admin account deactivated successfully",
+      200
+    );
+  } catch (err) {
+    console.error("Deactivate admin account error:", err);
+    sendError(res, "Failed to deactivate admin account", 500);
   }
 };
 

@@ -123,6 +123,24 @@ const driverPhotoUpload = createUploadConfig({
   },
 });
 
+// Rider photo uploads (single field)
+const riderPhotoUpload = createUploadConfig({
+  uploadDir: "riders",
+  allowedTypes: ["image/jpeg", "image/jpg", "image/png"],
+  errorMessage: "Invalid file type. Only JPEG, JPG, and PNG are allowed",
+  filenameGenerator: (req, file, cb) => {
+    const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1e9);
+    cb(
+      null,
+      "rider-" +
+        req.user.id +
+        "-" +
+        uniqueSuffix +
+        path.extname(file.originalname)
+    );
+  },
+});
+
 // Document fields configuration for driver documents
 const documentFields = [
   { name: "drivingLicenseFront", maxCount: 1 },
@@ -135,6 +153,14 @@ const documentFields = [
   { name: "vehiclePhotoSide", maxCount: 1 },
 ];
 
+// Form data parser (for non-file form fields)
+const formDataParser = multer({
+  storage: multer.memoryStorage(), // Don't save files, just parse fields
+  limits: {
+    fileSize: 10 * 1024 * 1024, // 10MB limit
+  },
+});
+
 module.exports = {
   createStorage,
   createFileFilter,
@@ -142,5 +168,7 @@ module.exports = {
   documentUpload,
   profilePictureUpload,
   driverPhotoUpload,
+  riderPhotoUpload,
   documentFields,
+  formDataParser,
 };

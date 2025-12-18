@@ -1,10 +1,14 @@
 const express = require("express");
 const router = express.Router();
+const multer = require("multer");
 
 const auth = require("../middlewares/auth");
 const checkPermission = require("../middlewares/permission");
 
 const profileController = require("../controllers/profileController");
+
+// Middleware to parse JSON bodies for POST/PUT requests
+const parseJson = multer().none();
 
 // All routes require authentication
 router.use(auth);
@@ -13,13 +17,9 @@ router.use(auth);
 router.get("/", checkPermission("view_profile"), profileController.getProfile);
 router.put(
   "/",
+  parseJson,
   checkPermission("update_profile"),
   profileController.updateProfile
-);
-router.post(
-  "/picture",
-  checkPermission("upload_photo"),
-  profileController.uploadProfilePicture
 );
 
 // Saved locations
@@ -30,6 +30,7 @@ router.get(
 );
 router.post(
   "/locations",
+  parseJson,
   checkPermission("update_profile"),
   profileController.addSavedLocation
 );
@@ -47,6 +48,7 @@ router.get(
 );
 router.post(
   "/payment-methods",
+  parseJson,
   checkPermission("update_profile"),
   profileController.addPaymentMethod
 );
@@ -64,6 +66,7 @@ router.get(
 );
 router.put(
   "/settings",
+  parseJson,
   checkPermission("update_profile"),
   profileController.updateSettings
 );

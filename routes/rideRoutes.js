@@ -3,6 +3,7 @@ const router = express.Router();
 
 const auth = require("../middlewares/auth");
 const checkPermission = require("../middlewares/permission");
+const { formDataParser } = require("../config/multerConfig");
 
 const rideController = require("../controllers/rideController");
 
@@ -12,6 +13,7 @@ router.use(auth);
 // Fare estimation
 router.post(
   "/estimate",
+  formDataParser.none(), // Parse form-data fields
   checkPermission("book_ride"),
   rideController.getFareEstimate
 );
