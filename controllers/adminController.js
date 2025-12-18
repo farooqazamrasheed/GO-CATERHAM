@@ -1937,6 +1937,7 @@ exports.getRiderDetails = async (req, res) => {
       suspendedBy: rider.suspendedBy,
       points: rider.points,
       referralStats: rider.referralStats,
+      photo: rider.photo,
       activeStatus: rider.activeStatus,
       createdAt: rider.createdAt,
       updatedAt: rider.updatedAt,
