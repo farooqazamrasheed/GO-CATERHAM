@@ -61,6 +61,20 @@ class SocketService {
         console.log("Ride request response:", data);
       });
 
+      // Wallet subscription for real-time updates
+      socket.on("subscribe_wallet", (userId) => {
+        if (userId) {
+          socket.join(`wallet_${userId}`);
+          console.log(`User ${userId} subscribed to wallet updates`);
+        }
+      });
+
+      // Unsubscribe from wallet updates
+      socket.on("unsubscribe_wallet", (userId) => {
+        socket.leave(`wallet_${userId}`);
+        console.log(`User ${userId} unsubscribed from wallet updates`);
+      });
+
       socket.on("disconnect", () => {
         console.log("User disconnected:", socket.id);
       });
@@ -310,11 +324,37 @@ class SocketService {
             type: "Polygon",
             coordinates: [
               [
-                [-0.8, 51.1], // Southwest corner
-                [-0.8, 51.6], // Northwest corner
-                [-0.1, 51.6], // Northeast corner
-                [-0.1, 51.1], // Southeast corner
-                [-0.8, 51.1], // Close the polygon
+                [-0.7647820542412376, 51.23981446058468],
+                [-0.7875715012305591, 51.3374427274924],
+                [-0.6234890626433867, 51.38724570115019],
+                [-0.5528255976095124, 51.44765326621072],
+                [-0.4912946943742895, 51.4369998383697],
+                [-0.4730633156372619, 51.460434099370985],
+                [-0.4969920002292554, 51.49591764082311],
+                [-0.41599643381312035, 51.48302961671584],
+                [-0.4034623609311154, 51.447536045839286],
+                [-0.35446553057650476, 51.40490731265197],
+                [-0.3350946905903527, 51.35227709578001],
+                [-0.27242432621378043, 51.39205851269867],
+                [-0.23596156893145803, 51.37214590110136],
+                [-0.18810419974732895, 51.34279330808303],
+                [-0.12999168002420447, 51.315737863375745],
+                [-0.05478725214481983, 51.348487158103154],
+                [0.005236573648232934, 51.30684028123139],
+                [0.08385939444977453, 51.320372623128776],
+                [0.10095132645901117, 51.230557277238916],
+                [0.07471019312615113, 51.14568596968138],
+                [-0.09279059902101494, 51.11922959976991],
+                [-0.13840415849489318, 51.15779247389932],
+                [-0.20107452358979572, 51.16493836684967],
+                [-0.2990681842990739, 51.12204640044169],
+                [-0.47454520463912786, 51.0991543868395],
+                [-0.6885988502547775, 51.033302729867955],
+                [-0.7375956806094166, 51.09059298445487],
+                [-0.7803726437674072, 51.11666890149371],
+                [-0.8088591650132173, 51.1567073053445],
+                [-0.8452124718280913, 51.192817893194615],
+                [-0.7647820542412376, 51.23981446058468],
               ],
             ],
           },
@@ -393,11 +433,37 @@ class SocketService {
         type: "Polygon",
         coordinates: [
           [
-            [-0.8, 51.1], // Southwest corner
-            [-0.8, 51.6], // Northwest corner
-            [-0.1, 51.6], // Northeast corner
-            [-0.1, 51.1], // Southeast corner
-            [-0.8, 51.1], // Close the polygon
+            [-0.7647820542412376, 51.23981446058468],
+            [-0.7875715012305591, 51.3374427274924],
+            [-0.6234890626433867, 51.38724570115019],
+            [-0.5528255976095124, 51.44765326621072],
+            [-0.4912946943742895, 51.4369998383697],
+            [-0.4730633156372619, 51.460434099370985],
+            [-0.4969920002292554, 51.49591764082311],
+            [-0.41599643381312035, 51.48302961671584],
+            [-0.4034623609311154, 51.447536045839286],
+            [-0.35446553057650476, 51.40490731265197],
+            [-0.3350946905903527, 51.35227709578001],
+            [-0.27242432621378043, 51.39205851269867],
+            [-0.23596156893145803, 51.37214590110136],
+            [-0.18810419974732895, 51.34279330808303],
+            [-0.12999168002420447, 51.315737863375745],
+            [-0.05478725214481983, 51.348487158103154],
+            [0.005236573648232934, 51.30684028123139],
+            [0.08385939444977453, 51.320372623128776],
+            [0.10095132645901117, 51.230557277238916],
+            [0.07471019312615113, 51.14568596968138],
+            [-0.09279059902101494, 51.11922959976991],
+            [-0.13840415849489318, 51.15779247389932],
+            [-0.20107452358979572, 51.16493836684967],
+            [-0.2990681842990739, 51.12204640044169],
+            [-0.47454520463912786, 51.0991543868395],
+            [-0.6885988502547775, 51.033302729867955],
+            [-0.7375956806094166, 51.09059298445487],
+            [-0.7803726437674072, 51.11666890149371],
+            [-0.8088591650132173, 51.1567073053445],
+            [-0.8452124718280913, 51.192817893194615],
+            [-0.7647820542412376, 51.23981446058468],
           ],
         ],
       };
@@ -537,6 +603,8 @@ class SocketService {
       in_progress: "ride_started",
       completed: "ride_completed",
       cancelled: "ride_cancelled",
+      no_drivers: "ride_no_drivers",
+      scheduled: "ride_scheduled",
     };
 
     const event = eventMap[status] || "ride_status_update";
@@ -824,6 +892,102 @@ class SocketService {
       locationId: locationId,
       timestamp: new Date(),
     });
+  }
+
+  /**
+   * Notify rider about payment method changes
+   * @param {string} riderId - Rider ID
+   * @param {Object} paymentMethodData - Payment method data
+   * @param {string} action - Action performed (added, updated, deleted)
+   */
+  notifyPaymentMethodUpdate(riderId, paymentMethodData, action = "updated") {
+    this.notifyUser(riderId, "payment_method_update", {
+      action,
+      paymentMethod: paymentMethodData,
+      timestamp: new Date(),
+    });
+  }
+
+  /**
+   * Notify rider about payment method added
+   * @param {string} riderId - Rider ID
+   * @param {Object} paymentMethodData - New payment method data
+   */
+  notifyPaymentMethodAdded(riderId, paymentMethodData) {
+    this.notifyPaymentMethodUpdate(riderId, paymentMethodData, "added");
+  }
+
+  /**
+   * Notify rider about payment method deleted
+   * @param {string} riderId - Rider ID
+   * @param {string} paymentMethodId - ID of deleted payment method
+   */
+  notifyPaymentMethodDeleted(riderId, paymentMethodId) {
+    this.notifyUser(riderId, "payment_method_update", {
+      action: "deleted",
+      paymentMethodId: paymentMethodId,
+      timestamp: new Date(),
+    });
+  }
+
+  /**
+   * Notify user about wallet updates
+   * @param {string} userId - User ID
+   * @param {Object} walletData - Updated wallet data
+   */
+  notifyWalletUpdate(userId, walletData) {
+    if (this.io) {
+      this.io.to(`wallet_${userId}`).emit("wallet_update", {
+        wallet: walletData,
+        timestamp: new Date(),
+      });
+      console.log(`Wallet update sent to user ${userId}`);
+    }
+  }
+
+  /**
+   * Notify user about wallet spending (balance decrease)
+   * @param {string} userId - User ID
+   * @param {Object} spendingData - Spending transaction data
+   */
+  notifyWalletSpending(userId, spendingData) {
+    if (this.io) {
+      this.io.to(`wallet_${userId}`).emit("wallet_spending", {
+        spending: spendingData,
+        timestamp: new Date(),
+      });
+      console.log(`Wallet spending notification sent to user ${userId}`);
+    }
+  }
+
+  /**
+   * Notify user about low wallet balance
+   * @param {string} userId - User ID
+   * @param {Object} alertData - Low balance alert data
+   */
+  notifyLowWalletBalance(userId, alertData) {
+    if (this.io) {
+      this.io.to(userId).emit("low_wallet_balance", {
+        alert: alertData,
+        timestamp: new Date(),
+      });
+      console.log(`Low wallet balance alert sent to user ${userId}`);
+    }
+  }
+
+  /**
+   * Notify user about new wallet transaction
+   * @param {string} userId - User ID
+   * @param {Object} transactionData - New transaction data
+   */
+  notifyWalletTransaction(userId, transactionData) {
+    if (this.io) {
+      this.io.to(`wallet_${userId}`).emit("wallet_transaction", {
+        transaction: transactionData,
+        timestamp: new Date(),
+      });
+      console.log(`Wallet transaction notification sent to user ${userId}`);
+    }
   }
 
   /**

@@ -371,6 +371,22 @@ exports.addPaymentMethod = async (req, res) => {
       provider: paymentMethod.provider,
     };
 
+    // Real-time notification for payment method added
+    const socketService = require("../services/socketService");
+    socketService.notifyPaymentMethodAdded(rider._id.toString(), {
+      id: paymentMethod._id,
+      type: paymentMethod.type,
+      isDefault: paymentMethod.isDefault,
+      status: paymentMethod.status,
+      maskedCard: paymentMethod.maskedCard,
+      brand: paymentMethod.card?.brand,
+      expiryMonth: paymentMethod.card?.expiryMonth,
+      expiryYear: paymentMethod.card?.expiryYear,
+      paypalEmail: paymentMethod.paypal?.email,
+      provider: paymentMethod.provider,
+      createdAt: paymentMethod.createdAt,
+    });
+
     sendSuccess(
       res,
       { paymentMethod: response },
@@ -403,6 +419,10 @@ exports.deletePaymentMethod = async (req, res) => {
     }
 
     await PaymentMethod.findByIdAndDelete(id);
+
+    // Real-time notification for payment method deleted
+    const socketService = require("../services/socketService");
+    socketService.notifyPaymentMethodDeleted(rider._id.toString(), id);
 
     sendSuccess(res, null, "Payment method deleted successfully", 200);
   } catch (error) {

@@ -2012,6 +2012,12 @@ exports.getDashboard = async (req, res) => {
     const totalAdmins = await Admin.countDocuments();
     const activeAdmins = await Admin.countDocuments({ status: "online" });
     const inactiveAdmins = await Admin.countDocuments({ status: "offline" });
+    const activeStatusActiveAdmins = await Admin.countDocuments({
+      activeStatus: "active",
+    });
+    const activeStatusInactiveAdmins = await Admin.countDocuments({
+      activeStatus: "deactive",
+    });
 
     const dashboard = {
       riders: {
@@ -2038,6 +2044,10 @@ exports.getDashboard = async (req, res) => {
         total: totalAdmins,
         active: activeAdmins,
         inactive: inactiveAdmins,
+        activeStatus: {
+          active: activeStatusActiveAdmins,
+          inactive: activeStatusInactiveAdmins,
+        },
       },
     };
 

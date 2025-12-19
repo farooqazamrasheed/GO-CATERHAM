@@ -15,11 +15,37 @@ const SURREY_BOUNDARY = {
   type: "Polygon",
   coordinates: [
     [
-      [-0.8, 51.1], // Southwest corner
-      [-0.8, 51.6], // Northwest corner
-      [-0.1, 51.6], // Northeast corner
-      [-0.1, 51.1], // Southeast corner
-      [-0.8, 51.1], // Close the polygon
+      [-0.7647820542412376, 51.23981446058468],
+      [-0.7875715012305591, 51.3374427274924],
+      [-0.6234890626433867, 51.38724570115019],
+      [-0.5528255976095124, 51.44765326621072],
+      [-0.4912946943742895, 51.4369998383697],
+      [-0.4730633156372619, 51.460434099370985],
+      [-0.4969920002292554, 51.49591764082311],
+      [-0.41599643381312035, 51.48302961671584],
+      [-0.4034623609311154, 51.447536045839286],
+      [-0.35446553057650476, 51.40490731265197],
+      [-0.3350946905903527, 51.35227709578001],
+      [-0.27242432621378043, 51.39205851269867],
+      [-0.23596156893145803, 51.37214590110136],
+      [-0.18810419974732895, 51.34279330808303],
+      [-0.12999168002420447, 51.315737863375745],
+      [-0.05478725214481983, 51.348487158103154],
+      [0.005236573648232934, 51.30684028123139],
+      [0.08385939444977453, 51.320372623128776],
+      [0.10095132645901117, 51.230557277238916],
+      [0.07471019312615113, 51.14568596968138],
+      [-0.09279059902101494, 51.11922959976991],
+      [-0.13840415849489318, 51.15779247389932],
+      [-0.20107452358979572, 51.16493836684967],
+      [-0.2990681842990739, 51.12204640044169],
+      [-0.47454520463912786, 51.0991543868395],
+      [-0.6885988502547775, 51.033302729867955],
+      [-0.7375956806094166, 51.09059298445487],
+      [-0.7803726437674072, 51.11666890149371],
+      [-0.8088591650132173, 51.1567073053445],
+      [-0.8452124718280913, 51.192817893194615],
+      [-0.7647820542412376, 51.23981446058468],
     ],
   ],
 };
@@ -405,6 +431,14 @@ exports.bookRide = async (req, res) => {
 
     const ride = await Ride.create(rideData);
 
+    // Notify admins about new ride booking
+    await socketService.notifyAdminRideUpdate(ride);
+
+    // Notify rider about scheduled ride confirmation
+    if (scheduledTime) {
+      socketService.notifyRideStatus(req.user.id, "scheduled", ride);
+    }
+
     // For immediate bookings, try to assign a driver
     let assignedDriver = null;
     let estimatedPickupTime = null;
@@ -421,6 +455,16 @@ exports.bookRide = async (req, res) => {
         ride.status = "assigned";
         ride.estimatedPickupTime = estimatedPickupTime;
         await ride.save();
+
+        // Notify rider about driver assignment
+        socketService.notifyDriverAssigned(req.user.id, assignedDriver, ride);
+
+        // Notify assigned driver about the ride
+        socketService.notifyRideStatus(
+          assignedDriver._id.toString(),
+          "assigned",
+          ride
+        );
       } else if (availableDrivers.length > 0) {
         // Start ride request timer for available drivers
         rideRequestManager.startRideRequest(
@@ -457,6 +501,12 @@ exports.bookRide = async (req, res) => {
 
         // Notify rider that we're searching for drivers
         socketService.notifyRideStatus(req.user.id, "searching", ride);
+      } else {
+        // No drivers available - notify rider
+        socketService.notifyRideStatus(req.user.id, "no_drivers", {
+          ...ride.toObject(),
+          message: "No drivers available right now. Please try again later.",
+        });
       }
     }
 
@@ -836,9 +886,53 @@ exports.completeRide = async (req, res) => {
       const wallet = await Wallet.findOne({ user: ride.rider });
       if (wallet && wallet.balance >= finalFare) {
         wallet.balance -= finalFare;
-        wallet.transactions.push({ ride: ride._id });
+        const rideTransaction = {
+          type: "ride",
+          amount: finalFare,
+          payment: payment._id,
+          ride: ride._id,
+          description: "Ride payment",
+        };
+        wallet.transactions.push(rideTransaction);
         await wallet.save();
         paymentStatus = "paid";
+
+        // Emit real-time transaction notification
+        socketService.notifyWalletTransaction(ride.rider.toString(), {
+          ...rideTransaction,
+          _id: wallet.transactions[wallet.transactions.length - 1]._id,
+          timestamp: new Date(),
+        });
+
+        // Emit real-time wallet spending notification
+        socketService.notifyWalletSpending(ride.rider.toString(), {
+          amount: finalFare,
+          type: "ride_payment",
+          rideId: ride._id,
+          description: "Ride payment",
+          newBalance: wallet.balance,
+        });
+
+        // Check for low balance alert
+        if (wallet.balance < 10) {
+          // Alert when balance drops below £10
+          socketService.notifyLowWalletBalance(ride.rider.toString(), {
+            balance: wallet.balance,
+            threshold: 10,
+            message: `Your wallet balance is low: £${wallet.balance.toFixed(
+              2
+            )}`,
+          });
+        }
+
+        // Emit real-time wallet update
+        socketService.notifyWalletUpdate(ride.rider.toString(), {
+          _id: wallet._id,
+          balance: wallet.balance,
+          currency: wallet.currency,
+          transactions: wallet.transactions,
+          updatedAt: wallet.updatedAt,
+        });
       } else {
         paymentStatus = "failed";
       }
@@ -1302,6 +1396,15 @@ exports.cancelRide = async (req, res) => {
           description: "Ride cancellation refund",
         });
         await wallet.save();
+
+        // Emit real-time wallet update
+        socketService.notifyWalletUpdate(ride.rider.toString(), {
+          _id: wallet._id,
+          balance: wallet.balance,
+          currency: wallet.currency,
+          transactions: wallet.transactions,
+          updatedAt: wallet.updatedAt,
+        });
       }
     }
 
@@ -1416,13 +1519,49 @@ exports.addTip = async (req, res) => {
 
     // Deduct from wallet
     wallet.balance -= tipAmount;
-    wallet.transactions.push({
+    const tipTransaction = {
       type: "tip",
       amount: tipAmount,
       ride: rideId,
       description: `Tip for ride ${rideId}`,
-    });
+    };
+    wallet.transactions.push(tipTransaction);
     await wallet.save();
+
+    // Emit real-time transaction notification
+    socketService.notifyWalletTransaction(riderId, {
+      ...tipTransaction,
+      _id: wallet.transactions[wallet.transactions.length - 1]._id,
+      timestamp: new Date(),
+    });
+
+    // Emit real-time wallet spending notification
+    socketService.notifyWalletSpending(riderId, {
+      amount: tipAmount,
+      type: "tip",
+      rideId: rideId,
+      description: `Tip for ride ${rideId}`,
+      newBalance: wallet.balance,
+    });
+
+    // Check for low balance alert
+    if (wallet.balance < 10) {
+      // Alert when balance drops below £10
+      socketService.notifyLowWalletBalance(riderId, {
+        balance: wallet.balance,
+        threshold: 10,
+        message: `Your wallet balance is low: £${wallet.balance.toFixed(2)}`,
+      });
+    }
+
+    // Emit real-time wallet update
+    socketService.notifyWalletUpdate(riderId, {
+      _id: wallet._id,
+      balance: wallet.balance,
+      currency: wallet.currency,
+      transactions: wallet.transactions,
+      updatedAt: wallet.updatedAt,
+    });
 
     // Update ride with tip
     ride.tips = tipAmount;

@@ -69,7 +69,7 @@ const paymentMethodSchema = new mongoose.Schema(
     provider: {
       type: String,
       required: true,
-      enum: ["paypal", "apple_pay", "google_pay"],
+      enum: ["paypal", "apple_pay", "google_pay", "stripe"],
     },
     status: {
       type: String,
@@ -81,7 +81,7 @@ const paymentMethodSchema = new mongoose.Schema(
 );
 
 // Ensure only one default payment method per rider
-paymentMethodSchema.pre("save", async function (next) {
+paymentMethodSchema.pre("save", async function () {
   if (this.isDefault) {
     await mongoose
       .model("PaymentMethod")
@@ -90,7 +90,6 @@ paymentMethodSchema.pre("save", async function (next) {
         { isDefault: false }
       );
   }
-  next();
 });
 
 // Virtual for masked card number

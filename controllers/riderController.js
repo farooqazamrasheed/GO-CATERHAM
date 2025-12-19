@@ -5,6 +5,7 @@ const Rider = require("../models/Rider");
 const Driver = require("../models/Driver");
 const LiveLocation = require("../models/LiveLocation");
 const { sendSuccess, sendError } = require("../utils/responseHelper");
+const socketService = require("../services/socketService");
 const path = require("path");
 const fs = require("fs");
 
@@ -13,11 +14,37 @@ const SURREY_BOUNDARY = {
   type: "Polygon",
   coordinates: [
     [
-      [-0.8, 51.1], // Southwest corner
-      [-0.8, 51.6], // Northwest corner
-      [-0.1, 51.6], // Northeast corner
-      [-0.1, 51.1], // Southeast corner
-      [-0.8, 51.1], // Close the polygon
+      [-0.7647820542412376, 51.23981446058468],
+      [-0.7875715012305591, 51.3374427274924],
+      [-0.6234890626433867, 51.38724570115019],
+      [-0.5528255976095124, 51.44765326621072],
+      [-0.4912946943742895, 51.4369998383697],
+      [-0.4730633156372619, 51.460434099370985],
+      [-0.4969920002292554, 51.49591764082311],
+      [-0.41599643381312035, 51.48302961671584],
+      [-0.4034623609311154, 51.447536045839286],
+      [-0.35446553057650476, 51.40490731265197],
+      [-0.3350946905903527, 51.35227709578001],
+      [-0.27242432621378043, 51.39205851269867],
+      [-0.23596156893145803, 51.37214590110136],
+      [-0.18810419974732895, 51.34279330808303],
+      [-0.12999168002420447, 51.315737863375745],
+      [-0.05478725214481983, 51.348487158103154],
+      [0.005236573648232934, 51.30684028123139],
+      [0.08385939444977453, 51.320372623128776],
+      [0.10095132645901117, 51.230557277238916],
+      [0.07471019312615113, 51.14568596968138],
+      [-0.09279059902101494, 51.11922959976991],
+      [-0.13840415849489318, 51.15779247389932],
+      [-0.20107452358979572, 51.16493836684967],
+      [-0.2990681842990739, 51.12204640044169],
+      [-0.47454520463912786, 51.0991543868395],
+      [-0.6885988502547775, 51.033302729867955],
+      [-0.7375956806094166, 51.09059298445487],
+      [-0.7803726437674072, 51.11666890149371],
+      [-0.8088591650132173, 51.1567073053445],
+      [-0.8452124718280913, 51.192817893194615],
+      [-0.7647820542412376, 51.23981446058468],
     ],
   ],
 };
@@ -176,24 +203,51 @@ exports.getRideHistory = async (req, res) => {
 exports.topUpWallet = async (req, res) => {
   try {
     const { amount } = req.body;
-    if (!amount || amount <= 0) {
+    const numAmount = parseFloat(amount);
+    if (!numAmount || numAmount <= 0 || isNaN(numAmount)) {
       return sendError(res, "Invalid amount", 400);
     }
 
-    const wallet = await Wallet.findOne({ user: req.user.id });
+    let wallet = await Wallet.findOne({ user: req.user.id });
     if (!wallet) {
-      return sendError(res, "Wallet not found", 404);
+      wallet = await Wallet.create({ user: req.user.id });
     }
 
-    wallet.balance += amount;
+    wallet.balance += numAmount;
     await wallet.save();
 
-    // Optional: create a Payment record for wallet top-up
+    // Emit real-time wallet update
+    socketService.notifyWalletUpdate(req.user.id, {
+      _id: wallet._id,
+      balance: wallet.balance,
+      currency: wallet.currency,
+      transactions: wallet.transactions,
+      updatedAt: wallet.updatedAt,
+    });
+
+    // Create a Payment record for wallet top-up
     const payment = await Payment.create({
       rider: req.user.id,
-      amount,
+      amount: numAmount,
       status: "paid",
       paymentMethod: "wallet",
+    });
+
+    // Add transaction to wallet
+    const newTransaction = {
+      type: "topup",
+      amount: numAmount,
+      payment: payment._id,
+      description: "Wallet top-up",
+    };
+    wallet.transactions.push(newTransaction);
+    await wallet.save();
+
+    // Emit real-time transaction notification
+    socketService.notifyWalletTransaction(req.user.id, {
+      ...newTransaction,
+      _id: wallet.transactions[wallet.transactions.length - 1]._id,
+      timestamp: new Date(),
     });
 
     sendSuccess(res, { wallet, payment }, "Wallet topped up successfully", 200);

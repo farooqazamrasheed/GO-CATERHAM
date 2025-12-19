@@ -5,7 +5,7 @@ const paymentSchema = new mongoose.Schema(
     ride: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Ride",
-      required: true,
+      required: false,
       unique: true,
     },
     rider: {

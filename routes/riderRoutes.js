@@ -25,6 +25,7 @@ router.get(
 // Top-up wallet
 router.post(
   "/wallet/topup",
+  multer().none(),
   checkPermission("topup_wallet"),
   riderController.topUpWallet
 );
