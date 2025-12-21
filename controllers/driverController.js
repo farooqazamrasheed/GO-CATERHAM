@@ -247,6 +247,19 @@ exports.updateStatus = async (req, res) => {
     const socketService = require("../services/socketService");
     socketService.notifyDriverStatusUpdate(driver._id.toString(), status);
 
+    // Notify nearby riders about driver status change (for online/offline changes)
+    await socketService.notifyNearbyRidersAboutDriverStatus(
+      driver._id.toString(),
+      status,
+      {
+        vehicleType: driver.vehicleType,
+        user: driver.user,
+      }
+    );
+
+    // Notify admins about driver status change
+    await socketService.notifyAdminDriverStatusUpdate(driver, status);
+
     sendSuccess(res, { driver }, "Status updated successfully", 200);
   } catch (error) {
     console.error("Update status error:", error);
@@ -409,6 +422,32 @@ exports.updateProfile = async (req, res) => {
     // Save changes
     await user.save();
     await driver.save();
+
+    // Send real-time WebSocket notifications
+    const socketService = require("../services/socketService");
+
+    // Notify driver about profile update
+    socketService.notifyDriverProfileUpdate(driver._id.toString(), {
+      updatedFields: Object.keys(req.body),
+      timestamp: new Date(),
+    });
+
+    // Notify dashboard subscribers about profile changes
+    socketService.notifyDriverDashboardUpdate(
+      driver._id.toString(),
+      {
+        profile: {
+          fullName: user.fullName,
+          email: user.email,
+          phone: user.phone,
+          vehicle: driver.vehicle,
+          vehicleModel: driver.vehicleModel,
+          vehicleType: driver.vehicleType,
+          status: driver.status,
+        },
+      },
+      "profile"
+    );
 
     // Return updated profile
     const updatedDriver = await Driver.findOne({ user: req.user.id })
@@ -1153,6 +1192,33 @@ exports.updateLocation = async (req, res) => {
     });
 
     console.log("User update result:", userUpdateResult);
+
+    // Real-time WebSocket notifications for location updates
+    const socketService = require("../services/socketService");
+
+    // Notify nearby riders about driver location update
+    await socketService.notifyNearbyRidersAboutDriverUpdate(
+      driver._id.toString(),
+      {
+        latitude: parseFloat(latitude),
+        longitude: parseFloat(longitude),
+        heading: heading ? parseFloat(heading) : 0,
+        speed: speed ? parseFloat(speed) : 0,
+        timestamp: timestamp ? new Date(timestamp) : new Date(),
+      }
+    );
+
+    // Notify subscribers of active rides about location updates
+    await socketService.notifyRideSubscribersAboutDriverLocation(
+      driver._id.toString(),
+      {
+        latitude: parseFloat(latitude),
+        longitude: parseFloat(longitude),
+        heading: heading ? parseFloat(heading) : 0,
+        speed: speed ? parseFloat(speed) : 0,
+        timestamp: timestamp ? new Date(timestamp) : new Date(),
+      }
+    );
 
     sendSuccess(
       res,

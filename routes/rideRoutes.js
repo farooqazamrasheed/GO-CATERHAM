@@ -19,8 +19,18 @@ router.post(
 );
 
 // Rider actions
-router.post("/book", checkPermission("book_ride"), rideController.bookRide);
-router.post("/request", checkPermission("book_ride"), rideController.bookRide); // Alias for /book
+router.post(
+  "/book",
+  formDataParser.none(),
+  checkPermission("book_ride"),
+  rideController.bookRide
+);
+router.post(
+  "/request",
+  formDataParser.none(),
+  checkPermission("book_ride"),
+  rideController.bookRide
+); // Alias for /book
 router.get(
   "/active",
   checkPermission("view_ride_status"),
@@ -38,6 +48,7 @@ router.get(
 );
 router.put(
   "/:rideId/cancel",
+  formDataParser.none(), // Parse form-data fields
   checkPermission("cancel_ride"),
   rideController.cancelRide
 );
@@ -50,6 +61,7 @@ router.put(
 );
 router.put(
   "/:rideId/reject",
+  formDataParser.none(), // Parse form-data fields
   checkPermission("reject_ride"),
   rideController.rejectRide
 );
@@ -65,17 +77,24 @@ router.put(
 );
 
 // Tip system
-router.post("/:rideId/tip", checkPermission("add_tip"), rideController.addTip);
+router.post(
+  "/:rideId/tip",
+  formDataParser.none(), // Parse form-data fields
+  checkPermission("add_tip"),
+  rideController.addTip
+);
 
 // Rating system
 router.post(
   "/:rideId/rate-driver",
+  formDataParser.none(), // Parse form-data fields
   checkPermission("rate_driver"),
   rideController.rateDriver
 );
 
 router.post(
   "/:rideId/rate-rider",
+  formDataParser.none(), // Parse form-data fields
   checkPermission("rate_rider"),
   rideController.rateRider
 );

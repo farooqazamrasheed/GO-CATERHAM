@@ -287,6 +287,34 @@ exports.signup = async (req, res) => {
           activeStatus: "active",
         });
 
+        // Notify referrer that their referral code was used
+        if (referredBy) {
+          const notificationService = require("../services/notificationService");
+          const socketService = require("../services/socketService");
+
+          // Update referrer's referral stats
+          await Rider.findByIdAndUpdate(referredBy, {
+            $inc: {
+              "referralStats.totalReferrals": 1,
+            },
+          });
+
+          // Notify referrer via WebSocket
+          socketService.notifyReferralCodeUsed(referredBy.toString(), {
+            newReferral: {
+              userId: user._id,
+              fullName: fullName,
+              email: email,
+              signupDate: new Date(),
+            },
+            referralStats: {
+              totalReferrals:
+                (await Rider.findById(referredBy)).referralStats
+                  .totalReferrals + 1,
+            },
+          });
+        }
+
         // Create initial activation history
         await ActiveStatusHistory.create({
           userId: user._id,

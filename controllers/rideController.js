@@ -355,12 +355,21 @@ exports.getFareEstimate = async (req, res) => {
 // Enhanced book ride with estimate validation and driver assignment
 exports.bookRide = async (req, res) => {
   try {
-    const {
-      estimateId,
-      paymentMethod = "wallet",
-      scheduledTime, // Optional: for future bookings
-      specialInstructions, // Optional
-    } = req.body;
+    // Debug logging
+    console.log("Book ride request body:", req.body);
+    console.log("Book ride request headers:", req.headers);
+
+    // Check if req.body exists and is an object
+    if (!req.body || typeof req.body !== "object") {
+      console.error("Invalid request body:", req.body);
+      return sendError(res, "Invalid request body format", 400);
+    }
+
+    // Handle form-data fields (convert strings to appropriate types)
+    const estimateId = req.body.estimateId;
+    const paymentMethod = req.body.paymentMethod || "wallet";
+    const scheduledTime = req.body.scheduledTime; // Optional: for future bookings
+    const specialInstructions = req.body.specialInstructions; // Optional
 
     // Validate estimate ID if provided
     let fareEstimate = null;
@@ -709,17 +718,109 @@ exports.acceptRide = async (req, res) => {
     // Use ride request manager to handle acceptance
     const ride = await rideRequestManager.acceptRide(rideId, driverId);
 
-    // Get rider information for response
-    await ride.populate({
-      path: "rider",
-      populate: {
-        path: "user",
-        select: "fullName phone",
+    // Get rider and driver information for response
+    await ride.populate([
+      {
+        path: "rider",
+        populate: {
+          path: "user",
+          select: "fullName phone",
+        },
       },
+      {
+        path: "driver",
+        populate: [
+          {
+            path: "user",
+            select: "fullName phone",
+          },
+          {
+            path: "vehicle",
+            select: "make model color plateNumber",
+          },
+        ],
+      },
+    ]);
+
+    // Enhanced real-time notifications
+
+    // 1. Notify rider about ride acceptance
+    socketService.notifyRideStatus(ride.rider._id.toString(), "accepted", ride);
+
+    // 2. Notify driver about successful acceptance and ride details
+    socketService.notifyUser(driverId, "ride_accepted_success", {
+      rideId: ride._id,
+      status: ride.status,
+      rider: {
+        name: ride.rider.user?.fullName || "Unknown Rider",
+        phone: ride.rider.user?.phone || null,
+        rating: ride.rider.rating || 5.0,
+      },
+      pickup: ride.pickup,
+      dropoff: ride.dropoff,
+      estimatedFare: ride.estimatedFare,
+      vehicleType: ride.vehicleType,
+      acceptedAt: ride.acceptedAt,
+      message: "Ride accepted successfully. Please proceed to pickup location.",
     });
 
-    // Send notifications
-    socketService.notifyRideStatus(ride.rider._id.toString(), "accepted", ride);
+    // 3. Update driver dashboard with new status and ride info
+    socketService.notifyDriverDashboardUpdate(
+      driverId,
+      {
+        status: "busy",
+        currentRide: {
+          rideId: ride._id,
+          riderName: ride.rider.user?.fullName || "Unknown Rider",
+          pickup: ride.pickup,
+          dropoff: ride.dropoff,
+          estimatedFare: ride.estimatedFare,
+          acceptedAt: ride.acceptedAt,
+        },
+      },
+      "ride_accepted"
+    );
+
+    // 4. Update rider dashboard with driver assignment
+    socketService.notifyRiderDashboardUpdate(
+      ride.rider._id.toString(),
+      {
+        currentRide: {
+          rideId: ride._id,
+          status: "accepted",
+          driver: {
+            id: ride.driver._id,
+            name: ride.driver.user?.fullName || "Unknown Driver",
+            phone: ride.driver.user?.phone || null,
+            rating: ride.driver.rating || 5.0,
+            vehicle: ride.driver.vehicle
+              ? {
+                  make: ride.driver.vehicle.make || "Unknown",
+                  model: ride.driver.vehicle.model || "Unknown",
+                  color: ride.driver.vehicle.color || "Unknown",
+                  plateNumber: ride.driver.vehicle.plateNumber || "Unknown",
+                }
+              : null,
+          },
+          pickup: ride.pickup,
+          dropoff: ride.dropoff,
+          estimatedFare: ride.estimatedFare,
+          acceptedAt: ride.acceptedAt,
+        },
+      },
+      "driver_assigned"
+    );
+
+    // 5. Send push notification to driver (via socket)
+    socketService.notifyUser(driverId, "push_notification", {
+      title: "Ride Accepted!",
+      message: `You have accepted a ride to ${
+        ride.dropoff?.address || "destination"
+      }. Please proceed to pickup.`,
+      type: "ride_accepted",
+      rideId: ride._id,
+      timestamp: new Date(),
+    });
 
     // Send email/SMS notification to rider
     try {
@@ -743,11 +844,25 @@ exports.acceptRide = async (req, res) => {
         dropoff: ride.dropoff,
         estimatedFare: ride.estimatedFare,
         vehicleType: ride.vehicleType,
+        acceptedAt: ride.acceptedAt,
       },
       rider: {
         name: ride.rider.user?.fullName || "Unknown Rider",
         phone: ride.rider.user?.phone || null,
         rating: ride.rider.rating || 5.0,
+      },
+      driver: {
+        name: ride.driver.user?.fullName || "Unknown Driver",
+        phone: ride.driver.user?.phone || null,
+        rating: ride.driver.rating || 5.0,
+        vehicle: ride.driver.vehicle
+          ? {
+              make: ride.driver.vehicle.make || "Unknown",
+              model: ride.driver.vehicle.model || "Unknown",
+              color: ride.driver.vehicle.color || "Unknown",
+              plateNumber: ride.driver.vehicle.plateNumber || "Unknown",
+            }
+          : null,
       },
       message: "Ride accepted successfully. Please proceed to pickup location.",
     };
@@ -766,8 +881,60 @@ exports.rejectRide = async (req, res) => {
     const driverId = req.user.id;
     const { reason } = req.body;
 
+    // Fetch ride data with rider information for notifications
+    const ride = await Ride.findById(rideId).populate({
+      path: "rider",
+      select: "user",
+      populate: {
+        path: "user",
+        select: "fullName",
+      },
+    });
+
+    if (!ride) {
+      return sendError(res, "Ride not found", 404);
+    }
+
     // Use ride request manager to handle rejection
     await rideRequestManager.rejectRide(rideId, driverId);
+
+    // Real-time notifications
+
+    // 1. Notify rider about driver rejection
+    socketService.notifyUser(
+      ride.rider._id.toString(),
+      "ride_driver_rejected",
+      {
+        rideId: ride._id,
+        message:
+          "A driver has rejected your ride request. We're finding another driver for you.",
+        reason: reason || "Driver unavailable",
+        timestamp: new Date(),
+      }
+    );
+
+    // 2. Update rider dashboard with rejection status
+    socketService.notifyRiderDashboardUpdate(
+      ride.rider._id.toString(),
+      {
+        rideStatus: "searching",
+        message: "Driver rejected - searching for another driver",
+      },
+      "ride_update"
+    );
+
+    // 3. Notify admin about ride rejection
+    await socketService.notifyAdminRideUpdate(ride);
+
+    // 4. Update rejecting driver's dashboard (remove rejected ride from active requests)
+    socketService.notifyDriverDashboardUpdate(
+      driverId,
+      {
+        rejectedRideId: rideId,
+        message: "Ride request rejected successfully",
+      },
+      "ride_rejected"
+    );
 
     sendSuccess(res, null, "Ride request rejected", 200);
   } catch (error) {
@@ -803,6 +970,9 @@ exports.startRide = async (req, res) => {
     socketService.notifyRideStatus(ride.rider.toString(), "in_progress", ride);
     await socketService.notifyAdminRideUpdate(ride);
 
+    // Trigger immediate active ride update for real-time tracking
+    socketService.sendActiveRideUpdate(ride._id.toString());
+
     sendSuccess(res, { ride }, "Ride started successfully", 200);
   } catch (error) {
     console.error("Start ride error:", error);
@@ -813,7 +983,10 @@ exports.startRide = async (req, res) => {
 // Complete ride
 exports.completeRide = async (req, res) => {
   try {
-    const { actualDistance, actualDuration } = req.body;
+    console.log("Complete ride req.body:", req.body);
+    console.log("Complete ride req.headers:", req.headers);
+
+    const { actualDistance, actualDuration } = req.body || {};
 
     let ride = await Ride.findById(req.params.rideId).populate({
       path: "driver",
@@ -825,7 +998,7 @@ exports.completeRide = async (req, res) => {
     }
 
     // Check if driver is authorized
-    if (ride.driver.toString() !== req.user.id) {
+    if (!ride.driver || ride.driver.toString() !== req.user.id) {
       return sendError(
         res,
         "You are not authorized to complete this ride",
@@ -948,18 +1121,176 @@ exports.completeRide = async (req, res) => {
       paymentMethod: ride.paymentMethod,
     });
 
-    // Send notification to rider about ride completion
-    socketService.notifyRideStatus(ride.rider.toString(), "completed", ride);
+    // Enhanced real-time notifications for ride completion
 
-    // Send real-time earnings update to driver
+    // 1. Notify rider about ride completion with detailed breakdown
+    socketService.notifyUser(ride.rider.toString(), "ride_completed", {
+      rideId: ride._id,
+      status: "completed",
+      finalFare: finalFare,
+      paymentStatus: paymentStatus,
+      paymentMethod: ride.paymentMethod,
+      completedAt: ride.endTime,
+      distance: ride.actualDistance || ride.estimatedDistance,
+      duration: ride.actualDuration || ride.estimatedDuration,
+      message: "Your ride has been completed successfully!",
+      receipt: {
+        fare: finalFare,
+        platformCommission: platformCommission,
+        driverEarnings: driverEarnings,
+        bonuses: ride.bonuses,
+        tips: ride.tips,
+        currency: "GBP",
+      },
+    });
+
+    // 2. Notify rider about payment processing
+    if (paymentStatus === "paid") {
+      socketService.notifyUser(ride.rider.toString(), "payment_processed", {
+        rideId: ride._id,
+        amount: finalFare,
+        method: ride.paymentMethod,
+        status: "completed",
+        timestamp: new Date(),
+        message: `Payment of £${finalFare.toFixed(2)} processed successfully`,
+      });
+    }
+
+    // 3. Notify driver about successful ride completion
+    socketService.notifyUser(
+      ride.driver._id.toString(),
+      "ride_completed_success",
+      {
+        rideId: ride._id,
+        status: "completed",
+        earnings: {
+          baseEarnings: driverEarnings,
+          bonuses: ride.bonuses,
+          tips: ride.tips,
+          totalEarnings: driverEarnings + ride.bonuses + ride.tips,
+          currency: "GBP",
+        },
+        rideDetails: {
+          distance: ride.actualDistance || ride.estimatedDistance,
+          duration: ride.actualDuration || ride.estimatedDuration,
+          pickup: ride.pickup,
+          dropoff: ride.dropoff,
+          completedAt: ride.endTime,
+        },
+        message:
+          "Ride completed successfully! Earnings have been added to your account.",
+        nextStatus: "available", // Driver becomes available for new rides
+      }
+    );
+
+    // 4. Update driver dashboard with completion status and earnings
+    socketService.notifyDriverDashboardUpdate(
+      ride.driver._id.toString(),
+      {
+        status: "available", // Driver is now available
+        lastRide: {
+          rideId: ride._id,
+          earnings: driverEarnings + ride.bonuses + ride.tips,
+          completedAt: ride.endTime,
+          rating: null, // Will be updated when rider rates
+        },
+        totalEarnings: {
+          today: driverEarnings + ride.bonuses + ride.tips,
+          currency: "GBP",
+        },
+      },
+      "ride_completed"
+    );
+
+    // 5. Send real-time earnings update notification to driver
     socketService.notifyDriverEarningsUpdate(ride.driver._id.toString(), {
       rideId: ride._id,
-      earnings: driverEarnings,
-      tips: ride.tips,
-      bonuses: ride.bonuses,
-      totalAmount: driverEarnings + ride.tips + ride.bonuses,
-      completedAt: ride.endTime,
+      earnings: {
+        baseEarnings: driverEarnings,
+        bonuses: ride.bonuses,
+        tips: ride.tips,
+        totalEarnings: driverEarnings + ride.bonuses + ride.tips,
+        currency: "GBP",
+      },
+      period: "today",
+      timestamp: new Date(),
+      message: `Ride completed! You earned £${(
+        driverEarnings +
+        ride.bonuses +
+        ride.tips
+      ).toFixed(2)}`,
     });
+
+    // 5. Update rider dashboard with completed ride
+    socketService.notifyRiderDashboardUpdate(
+      ride.rider.toString(),
+      {
+        lastRide: {
+          rideId: ride._id,
+          status: "completed",
+          fare: finalFare,
+          completedAt: ride.endTime,
+          paymentStatus: paymentStatus,
+        },
+        stats: {
+          totalRides: 1, // This would be calculated properly in production
+          totalSpent: finalFare,
+          currency: "GBP",
+        },
+      },
+      "ride_completed"
+    );
+
+    // 6. Notify rider about ride history update (new ride added to history)
+    socketService.notifyRideHistoryUpdate(ride.rider.toString(), {
+      action: "ride_completed",
+      newRide: {
+        rideId: ride._id,
+        dateTime: ride.endTime,
+        pickupAddress: ride.pickup?.address || "N/A",
+        dropoffAddress: ride.dropoff?.address || "N/A",
+        driver: ride.driver
+          ? {
+              name: ride.driver.user?.fullName || "Unknown Driver",
+              rating: ride.driver.rating || 5.0,
+            }
+          : null,
+        vehicle: ride.driver?.vehicle
+          ? {
+              make: ride.driver.vehicle.make || "Unknown",
+              model: ride.driver.vehicle.model || "Unknown",
+              color: ride.driver.vehicle.color || "Unknown",
+              plateNumber: ride.driver.vehicle.plateNumber || "Unknown",
+            }
+          : null,
+        fare: finalFare,
+        distance: ride.actualDistance || ride.estimatedDistance || 0,
+        duration: ride.actualDuration || ride.estimatedDuration || 0,
+        status: "completed",
+        paymentStatus: paymentStatus,
+      },
+      message: "A new ride has been added to your history",
+    });
+
+    // 6. Notify admins about ride completion with detailed stats
+    socketService.notifyUser("admin", "admin_ride_completed", {
+      rideId: ride._id,
+      riderId: ride.rider,
+      driverId: ride.driver._id,
+      status: "completed",
+      finalFare: finalFare,
+      driverEarnings: driverEarnings,
+      platformCommission: platformCommission,
+      paymentStatus: paymentStatus,
+      completedAt: ride.endTime,
+      distance: ride.actualDistance || ride.estimatedDistance,
+      duration: ride.actualDuration || ride.estimatedDuration,
+      vehicleType: ride.vehicleType,
+      message: `Ride ${ride._id} completed successfully`,
+    });
+
+    // 7. Stop real-time active ride updates since ride is completed
+    socketService.stopActiveRideUpdates(ride._id.toString());
 
     // Send email notification to rider
     try {
@@ -1198,7 +1529,30 @@ exports.getRideStatus = async (req, res) => {
         endTime: ride.endTime,
       },
       specialInstructions: ride.specialInstructions,
+      // Add WebSocket subscription info for real-time updates
+      realTimeUpdates: {
+        subscribed: true,
+        updateInterval: 10000, // 10 seconds
+        events: [
+          "location_update",
+          "status_change",
+          "fare_update",
+          "eta_update",
+        ],
+      },
     };
+
+    // Subscribe to real-time updates for active rides
+    if (["assigned", "accepted", "in_progress"].includes(ride.status)) {
+      socketService.subscribeToRideStatusUpdates(req.user.id, ride._id);
+
+      // Send initial real-time update notification
+      socketService.notifyUser(req.user.id, "ride_status_initial", {
+        rideId: ride._id,
+        message: "Real-time updates enabled for this ride",
+        updateInterval: 10000,
+      });
+    }
 
     sendSuccess(res, response, "Ride status retrieved successfully", 200);
   } catch (error) {
@@ -1232,8 +1586,13 @@ exports.getActiveRide = async (req, res) => {
       .sort({ createdAt: -1 }); // Get most recent if multiple
 
     if (!activeRide) {
+      // Unsubscribe from any previous active ride updates
+      socketService.unsubscribeFromActiveRide(riderId);
       return sendSuccess(res, null, "No active ride found", 200);
     }
+
+    // Subscribe to real-time updates for this active ride
+    socketService.subscribeToActiveRide(riderId, activeRide._id);
 
     // Get driver's current location if ride is active
     let driverLocation = null;
@@ -1389,13 +1748,21 @@ exports.cancelRide = async (req, res) => {
       const wallet = await Wallet.findOne({ user: ride.rider });
       if (wallet) {
         wallet.balance += refundAmount;
-        wallet.transactions.push({
+        const refundTransaction = {
           type: "refund",
           amount: refundAmount,
           ride: ride._id,
           description: "Ride cancellation refund",
-        });
+        };
+        wallet.transactions.push(refundTransaction);
         await wallet.save();
+
+        // Emit real-time wallet transaction notification
+        socketService.notifyWalletTransaction(ride.rider.toString(), {
+          ...refundTransaction,
+          _id: wallet.transactions[wallet.transactions.length - 1]._id,
+          timestamp: new Date(),
+        });
 
         // Emit real-time wallet update
         socketService.notifyWalletUpdate(ride.rider.toString(), {
@@ -1414,6 +1781,9 @@ exports.cancelRide = async (req, res) => {
     ride.refundAmount = refundAmount;
     await ride.save();
 
+    // Stop real-time active ride updates since ride is cancelled
+    socketService.stopActiveRideUpdates(ride._id.toString());
+
     // Send notification to both rider and driver (if assigned) about cancellation
     socketService.notifyRideCancelled(
       ride.rider.toString(),
@@ -1426,10 +1796,38 @@ exports.cancelRide = async (req, res) => {
         cancellationReason,
         ride
       );
+
+      // Update driver dashboard with cancelled ride status
+      socketService.notifyDriverDashboardUpdate(
+        ride.driver.toString(),
+        {
+          cancelledRideId: ride._id,
+          status: "available", // Driver becomes available again
+          message: "Ride cancelled - you are now available for new rides",
+        },
+        "ride_cancelled"
+      );
     }
 
     // Notify admins about ride cancellation
     await socketService.notifyAdminRideUpdate(ride);
+
+    // Notify rider about cancelled ride added to history
+    socketService.notifyRideHistoryUpdate(ride.rider.toString(), {
+      action: "ride_cancelled",
+      cancelledRide: {
+        rideId: ride._id,
+        dateTime: ride.createdAt,
+        pickupAddress: ride.pickup?.address || "N/A",
+        dropoffAddress: ride.dropoff?.address || "N/A",
+        status: "cancelled",
+        cancellationReason,
+        cancellationFee,
+        refundAmount,
+        cancelledAt,
+      },
+      message: "A ride has been cancelled and added to your history",
+    });
 
     const response = {
       ride: {
@@ -1576,6 +1974,78 @@ exports.addTip = async (req, res) => {
       message: `You received a £${tipAmount} tip from ${req.user.fullName}!`,
     });
 
+    // Enhanced real-time notifications for tip
+
+    // 1. Update driver dashboard with new earnings
+    socketService.notifyDriverDashboardUpdate(
+      ride.driver.toString(),
+      {
+        earnings: {
+          tipReceived: tipAmount,
+          totalEarnings: ride.driverEarnings,
+          currency: "GBP",
+        },
+        lastTip: {
+          amount: tipAmount,
+          riderName: req.user.fullName,
+          rideId: ride._id,
+          timestamp: new Date(),
+        },
+      },
+      "tip_received"
+    );
+
+    // 2. Send real-time earnings update notification to driver for tip
+    socketService.notifyDriverEarningsUpdate(ride.driver.toString(), {
+      rideId: ride._id,
+      earnings: {
+        tipReceived: tipAmount,
+        totalEarnings: ride.driverEarnings,
+        currency: "GBP",
+      },
+      period: "today",
+      timestamp: new Date(),
+      message: `Tip received! £${tipAmount.toFixed(2)} added to your earnings`,
+    });
+
+    // 2. Update rider dashboard with tip transaction
+    socketService.notifyRiderDashboardUpdate(
+      riderId,
+      {
+        recentTransaction: {
+          type: "tip",
+          amount: tipAmount,
+          description: `Tip for ride ${ride._id}`,
+          timestamp: new Date(),
+        },
+        walletBalance: wallet.balance,
+        currency: "GBP",
+      },
+      "tip_transaction"
+    );
+
+    // 3. Send push notification to driver
+    socketService.notifyUser(ride.driver.toString(), "push_notification", {
+      title: "Tip Received! 💰",
+      message: `You received a £${tipAmount} tip from ${req.user.fullName}`,
+      type: "tip_received",
+      rideId: ride._id,
+      amount: tipAmount,
+      timestamp: new Date(),
+    });
+
+    // 4. Notify admins about tip activity
+    socketService.notifyUser("admin", "admin_tip_received", {
+      rideId: ride._id,
+      riderId: riderId,
+      driverId: ride.driver._id,
+      tipAmount,
+      riderName: req.user.fullName,
+      driverName: ride.driver.user?.fullName || "Unknown Driver",
+      timestamp: new Date(),
+      message: `Tip of £${tipAmount} added to ride ${ride._id}`,
+    });
+
     sendSuccess(
       res,
       {
@@ -1596,7 +2066,9 @@ exports.addTip = async (req, res) => {
 // Rate driver after ride completion
 exports.rateDriver = async (req, res) => {
   try {
+    // Accept rating from either body or query parameters for flexibility
     const { rating, comment } = req.body;
+
     const rideId = req.params.rideId;
     const riderId = req.user.id;
 
@@ -1640,6 +2112,10 @@ exports.rateDriver = async (req, res) => {
     // Update driver average rating
     await updateDriverRating(ride.driver._id);
 
+    // Get updated driver rating for notifications
+    const Driver = require("../models/Driver");
+    const updatedDriver = await Driver.findById(ride.driver._id);
+
     // Send notification to driver
     socketService.notifyUser(ride.driver._id.toString(), "rider_rating", {
       rideId: ride._id,
@@ -1649,6 +2125,67 @@ exports.rateDriver = async (req, res) => {
       message: `${req.user.fullName} rated your service ${rating} star${
         rating > 1 ? "s" : ""
       }`,
+    });
+
+    // 1. Driver Dashboard Updates: Notify driver with updated rating statistics
+    socketService.notifyDriverDashboardUpdate(
+      ride.driver._id.toString(),
+      {
+        rating: {
+          newRating: rating,
+          comment: comment || null,
+          riderName: req.user.fullName,
+          rideId: ride._id,
+          updatedAverageRating: updatedDriver.rating,
+        },
+        stats: {
+          totalRides: await Ride.countDocuments({
+            driver: ride.driver._id,
+            status: "completed",
+          }),
+          averageRating: updatedDriver.rating,
+        },
+      },
+      "rating_received"
+    );
+
+    // 2. Admin Notifications: Alert admins about new ratings for monitoring
+    socketService.notifyUser("admin", "admin_rating_received", {
+      rideId: ride._id,
+      driverId: ride.driver._id,
+      riderId: req.user.id,
+      rating,
+      comment,
+      driverName: ride.driver.user?.fullName || "Unknown Driver",
+      riderName: req.user.fullName,
+      newAverageRating: updatedDriver.rating,
+      timestamp: new Date(),
+      message: `New rating received: ${rating} stars for driver ${
+        ride.driver.user?.fullName || "Unknown Driver"
+      }`,
+    });
+
+    // 3. Rider Confirmation: Confirm to the rider that the rating was submitted successfully
+    socketService.notifyUser(req.user.id, "rating_submitted", {
+      rideId: ride._id,
+      rating,
+      comment,
+      driverName: ride.driver.user?.fullName || "Unknown Driver",
+      message: `Your ${rating}-star rating has been submitted successfully!`,
+      timestamp: new Date(),
+    });
+
+    // 4. Real-Time Rating Display: Update driver's profile rating across all connected clients
+    // This will notify all clients that have the driver in their nearby drivers list
+    socketService.notifyNearbyRidersAboutDriverUpdate(ride.driver._id, {
+      driverId: ride.driver._id,
+      updatedRating: updatedDriver.rating,
+      lastRating: rating,
+      totalRatings: await Ride.countDocuments({
+        driver: ride.driver._id,
+        status: "completed",
+        "rating.riderRating": { $exists: true },
+      }),
     });
 
     sendSuccess(

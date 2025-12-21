@@ -4,6 +4,8 @@ node_modules/
 API_DOCUMENTATION.md
 API_Postman_Instructions.md
 GO-CATERHAM_Postman_Collection.json
+REWARDS_WEBSOCKET_README.md
+WEBSOCKET_README.md
 
 # Environment variables
 .env

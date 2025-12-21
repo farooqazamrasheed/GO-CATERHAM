@@ -20,6 +20,7 @@ const io = socketIo(server, {
 
 // Initialize socket service
 socketService.initialize(io);
+console.log("Socket.IO service initialized");
 
 // Make io accessible in routes/controllers
 app.set("io", io);

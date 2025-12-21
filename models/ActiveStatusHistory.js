@@ -37,6 +37,9 @@ const activeStatusHistorySchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       required: true,
     },
+    reason: {
+      type: String,
+    },
   },
   { timestamps: true }
 );

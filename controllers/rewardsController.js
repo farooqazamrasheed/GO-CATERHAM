@@ -4,6 +4,7 @@ const RewardTier = require("../models/RewardTier");
 const RewardCode = require("../models/RewardCode");
 const RewardTransaction = require("../models/RewardTransaction");
 const { sendSuccess, sendError } = require("../utils/responseHelper");
+const socketService = require("../services/socketService");
 
 // Get rewards balance and tier information
 exports.getRewardsBalance = async (req, res) => {
@@ -85,6 +86,21 @@ exports.getRewardsBalance = async (req, res) => {
     };
 
     sendSuccess(res, response, "Rewards balance retrieved successfully", 200);
+
+    // Emit real-time balance update
+    socketService.notifyRewardsBalanceUpdate(rider.user.toString(), {
+      points: response.points,
+      tier: response.tier,
+      expiringPoints: response.expiringPoints,
+    });
+
+    // Emit expiring points alert if needed
+    if (response.expiringPoints.warning) {
+      socketService.notifyRewardsExpiringSoon(rider.user.toString(), {
+        amount: response.expiringPoints.amount,
+        nextExpiry: response.expiringPoints.nextExpiry,
+      });
+    }
   } catch (error) {
     console.error("Get rewards balance error:", error);
     sendError(res, "Failed to retrieve rewards balance", 500);
@@ -142,6 +158,16 @@ exports.getAvailableRewards = async (req, res) => {
       "Available rewards retrieved successfully",
       200
     );
+
+    // Emit real-time new rewards available notification
+    const newlyAvailableRewards = rewardsWithAvailability.filter(
+      (reward) => reward.isAvailable
+    );
+    if (newlyAvailableRewards.length > 0) {
+      socketService.notifyRewardsNewAvailable(rider.user.toString(), {
+        rewards: newlyAvailableRewards,
+      });
+    }
   } catch (error) {
     console.error("Get available rewards error:", error);
     sendError(res, "Failed to retrieve available rewards", 500);
@@ -174,6 +200,15 @@ exports.redeemReward = async (req, res) => {
 
     // Check if rider has enough points
     if (rider.points.balance < reward.pointsRequired) {
+      // Notify about redemption failure
+      socketService.notifyRiderRedemptionFailed(rider.user.toString(), {
+        reason: "insufficient_points",
+        rewardId: rewardId,
+        rewardTitle: reward.title,
+        pointsRequired: reward.pointsRequired,
+        currentBalance: rider.points.balance,
+        pointsNeeded: reward.pointsRequired - rider.points.balance,
+      });
       return sendError(res, "Insufficient points balance", 400);
     }
 
@@ -186,6 +221,14 @@ exports.redeemReward = async (req, res) => {
       });
 
       if (userRedemptions >= reward.maxRedemptionsPerUser) {
+        // Notify about redemption failure
+        socketService.notifyRiderRedemptionFailed(rider.user.toString(), {
+          reason: "max_redemptions_reached",
+          rewardId: rewardId,
+          rewardTitle: reward.title,
+          maxRedemptions: reward.maxRedemptionsPerUser,
+          currentRedemptions: userRedemptions,
+        });
         return sendError(
           res,
           "Maximum redemptions reached for this reward",
@@ -245,6 +288,13 @@ exports.redeemReward = async (req, res) => {
     };
 
     sendSuccess(res, response, "Reward redeemed successfully", 200);
+
+    // Emit real-time redemption success notification
+    socketService.notifyRewardsRedemptionSuccess(rider.user.toString(), {
+      rewardCode: response.rewardCode,
+      newBalance: response.newBalance,
+      pointsUsed: response.pointsUsed,
+    });
   } catch (error) {
     console.error("Redeem reward error:", error);
     sendError(res, "Failed to redeem reward", 500);
@@ -300,6 +350,13 @@ exports.getReferralInfo = async (req, res) => {
       "Referral information retrieved successfully",
       200
     );
+
+    // Emit real-time referral information update
+    socketService.notifyReferralInfoUpdate(rider.user.toString(), {
+      referralCode: response.referralCode,
+      statistics: response.statistics,
+      shareableLink: response.shareableLink,
+    });
   } catch (error) {
     console.error("Get referral info error:", error);
     sendError(res, "Failed to retrieve referral information", 500);
@@ -400,6 +457,7 @@ exports.awardPoints = async (
     }
 
     const oldBalance = rider.points.balance;
+    const oldTier = rider.points.currentTier;
     rider.points.balance += points;
     rider.points.totalEarned += points;
 
@@ -429,6 +487,50 @@ exports.awardPoints = async (
       reference,
       relatedRide,
       expiresAt,
+    });
+
+    // Emit real-time balance update
+    socketService.notifyRewardsBalanceUpdate(riderId.toString(), {
+      points: {
+        balance: rider.points.balance,
+        totalEarned: rider.points.totalEarned,
+        totalRedeemed: rider.points.totalRedeemed,
+        cashValue: (rider.points.balance * 0.01).toFixed(2),
+        currency: "GBP",
+      },
+      tier: {
+        current: rider.points.currentTier,
+      },
+    });
+
+    // Check if tier was upgraded
+    if (newTier && rider.points.currentTier !== oldTier) {
+      socketService.notifyRewardsTierUpgrade(riderId.toString(), {
+        newTier: rider.points.currentTier,
+        benefits: newTier.benefits,
+      });
+    }
+
+    // Check if this is referral points earned
+    if (
+      description.toLowerCase().includes("referral") ||
+      reference?.includes("REF")
+    ) {
+      socketService.notifyReferralPointsEarned(riderId.toString(), {
+        pointsEarned: points,
+        description,
+        reference,
+        newBalance: rider.points.balance,
+      });
+    }
+
+    // Notify about points earned (general notification)
+    socketService.notifyRiderPointsEarned(riderId.toString(), {
+      pointsEarned: points,
+      description,
+      reference,
+      newBalance: rider.points.balance,
+      tier: rider.points.currentTier,
     });
 
     return rider.points.balance;

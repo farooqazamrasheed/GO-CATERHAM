@@ -31,7 +31,7 @@ router.post(
 );
 
 // Update status
-router.put("/status", riderController.updateStatus);
+router.put("/status", multer().none(), riderController.updateStatus);
 
 // Get dashboard data
 router.get(

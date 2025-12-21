@@ -190,7 +190,15 @@ exports.getRideHistory = async (req, res) => {
         hasPrev: pageNum > 1,
         limit: limitNum,
       },
+      realTimeUpdates: {
+        subscribed: true,
+        updateInterval: 30000, // 30 seconds for history updates (less frequent than active rides)
+        events: ["ride_completed", "ride_cancelled", "ride_history_update"],
+      },
     };
+
+    // Subscribe user to real-time ride history updates
+    socketService.subscribeToRideHistoryUpdates(userId);
 
     sendSuccess(res, response, "Ride history retrieved successfully", 200);
   } catch (error) {
@@ -260,7 +268,7 @@ exports.topUpWallet = async (req, res) => {
 // Update rider status
 exports.updateStatus = async (req, res) => {
   try {
-    const { status } = req.body; // online/offline
+    const { status } = req.body || {}; // online/offline
     if (!["online", "offline"].includes(status)) {
       return sendError(res, "Invalid status. Must be online or offline", 400);
     }
@@ -274,6 +282,9 @@ exports.updateStatus = async (req, res) => {
     if (!rider) {
       return sendError(res, "Rider profile not found", 404);
     }
+
+    // Emit real-time status update
+    socketService.notifyRiderStatusUpdate(req.user.id, status);
 
     sendSuccess(res, { rider }, "Status updated successfully", 200);
   } catch (err) {

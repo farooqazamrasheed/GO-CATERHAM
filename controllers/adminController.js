@@ -2477,16 +2477,28 @@ exports.activateRiderAccount = async (req, res) => {
 exports.deactivateRiderAccount = async (req, res) => {
   try {
     const { riderId } = req.params;
+    const { password, reason } = req.body;
     const userId = req.user.id;
+
+    // Validate required fields
+    if (!password) {
+      return sendError(res, "Password is required", 400);
+    }
 
     const targetRider = await Rider.findById(riderId);
     if (!targetRider) {
       return sendError(res, "Rider not found", 404);
     }
 
-    const currentAdmin = await Admin.findOne({ user: userId });
+    const currentAdmin = await Admin.findOne({ user: userId }).populate("user");
     if (!currentAdmin) {
       return sendError(res, "Admin profile not found", 404);
+    }
+
+    // Validate admin password
+    const isPasswordValid = await currentAdmin.user.comparePassword(password);
+    if (!isPasswordValid) {
+      return sendError(res, "Invalid password", 401);
     }
 
     // Update activeStatus
@@ -2498,6 +2510,7 @@ exports.deactivateRiderAccount = async (req, res) => {
       userType: "rider",
       action: "deactivate",
       performedBy: userId,
+      reason: reason,
     };
     historyData.riderId = riderId;
     await ActiveStatusHistory.create(historyData);
@@ -2511,6 +2524,7 @@ exports.deactivateRiderAccount = async (req, res) => {
         action: "deactivate",
         timestamp: new Date(),
         performedBy: userId,
+        reason: reason,
       });
     }
 

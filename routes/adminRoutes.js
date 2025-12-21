@@ -168,6 +168,7 @@ router.put(
 );
 router.put(
   "/riders/:riderId/deactivate",
+  parseFormData,
   checkPermission("manage_riders"),
   adminController.deactivateRiderAccount
 );
