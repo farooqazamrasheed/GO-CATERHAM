@@ -418,6 +418,7 @@ exports.bookRide = async (req, res) => {
     // Create ride
     const rideData = {
       rider: req.user.id,
+      driver: null,
       status: scheduledTime ? "scheduled" : "searching",
       scheduledTime: scheduledDate,
       specialInstructions,
@@ -551,26 +552,58 @@ exports.bookRide = async (req, res) => {
 // Helper function to count available drivers
 async function countAvailableDrivers(pickupLat, pickupLng, vehicleType) {
   try {
+    console.log(
+      "DEBUG: Counting available drivers for pickup:",
+      pickupLat,
+      pickupLng,
+      "vehicleType:",
+      vehicleType
+    );
     const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
 
     const recentLocations = await LiveLocation.find({
       timestamp: { $gte: fiveMinutesAgo },
     }).populate("driver");
 
+    console.log("DEBUG: Found", recentLocations.length, "recent locations");
     let availableCount = 0;
+    let filteredOut = {
+      noDriver: 0,
+      notOnline: 0,
+      notApproved: 0,
+      vehicleTypeMismatch: 0,
+      outsideBoundary: 0,
+      tooFar: 0,
+    };
 
     for (const location of recentLocations) {
       // Check driver availability
+      if (!location.driver) {
+        filteredOut.noDriver++;
+        continue;
+      }
+      if (location.driver.status !== "online") {
+        filteredOut.notOnline++;
+        continue;
+      }
+      if (!location.driver.isApproved) {
+        filteredOut.notApproved++;
+        continue;
+      }
+
+      // Check vehicle type match
       if (
-        !location.driver ||
-        location.driver.status !== "online" ||
-        !location.driver.isApproved
+        !location.driver.vehicle ||
+        location.driver.vehicle.type !== vehicleType
       ) {
+        filteredOut.vehicleTypeMismatch =
+          (filteredOut.vehicleTypeMismatch || 0) + 1;
         continue;
       }
 
       // Check Surrey boundary
       if (!isInSurrey(location.latitude, location.longitude)) {
+        filteredOut.outsideBoundary++;
         continue;
       }
 
@@ -583,9 +616,19 @@ async function countAvailableDrivers(pickupLat, pickupLng, vehicleType) {
       );
       if (distance <= 10) {
         availableCount++;
+      } else {
+        filteredOut.tooFar++;
       }
     }
 
+    console.log(
+      "DEBUG: Driver availability - total recent:",
+      recentLocations.length,
+      "available:",
+      availableCount,
+      "filtered:",
+      filteredOut
+    );
     return availableCount;
   } catch (error) {
     console.error("Error counting available drivers:", error);
@@ -608,7 +651,9 @@ async function calculateEstimatedPickupTime(pickupLat, pickupLng, vehicleType) {
       if (
         !location.driver ||
         location.driver.status !== "online" ||
-        !location.driver.isApproved
+        !location.driver.isApproved ||
+        !location.driver.vehicle ||
+        location.driver.vehicle.type !== vehicleType
       ) {
         continue;
       }
@@ -659,7 +704,9 @@ async function assignDriverToRide(rideId, fareEstimate) {
       if (
         !location.driver ||
         location.driver.status !== "online" ||
-        !location.driver.isApproved
+        !location.driver.isApproved ||
+        !location.driver.vehicle ||
+        location.driver.vehicle.type !== fareEstimate.vehicleType
       ) {
         continue;
       }
@@ -722,23 +769,15 @@ exports.acceptRide = async (req, res) => {
     await ride.populate([
       {
         path: "rider",
+        select: "fullName phone",
+      },
+      {
+        path: "driver",
+        select: "vehicle vehicleModel vehicleColor numberPlateOfVehicle rating",
         populate: {
           path: "user",
           select: "fullName phone",
         },
-      },
-      {
-        path: "driver",
-        populate: [
-          {
-            path: "user",
-            select: "fullName phone",
-          },
-          {
-            path: "vehicle",
-            select: "make model color plateNumber",
-          },
-        ],
       },
     ]);
 
@@ -752,8 +791,8 @@ exports.acceptRide = async (req, res) => {
       rideId: ride._id,
       status: ride.status,
       rider: {
-        name: ride.rider.user?.fullName || "Unknown Rider",
-        phone: ride.rider.user?.phone || null,
+        name: ride.rider.fullName || "Unknown Rider",
+        phone: ride.rider.phone || null,
         rating: ride.rider.rating || 5.0,
       },
       pickup: ride.pickup,
@@ -771,7 +810,7 @@ exports.acceptRide = async (req, res) => {
         status: "busy",
         currentRide: {
           rideId: ride._id,
-          riderName: ride.rider.user?.fullName || "Unknown Rider",
+          riderName: ride.rider.fullName || "Unknown Rider",
           pickup: ride.pickup,
           dropoff: ride.dropoff,
           estimatedFare: ride.estimatedFare,
@@ -847,8 +886,8 @@ exports.acceptRide = async (req, res) => {
         acceptedAt: ride.acceptedAt,
       },
       rider: {
-        name: ride.rider.user?.fullName || "Unknown Rider",
-        phone: ride.rider.user?.phone || null,
+        name: ride.rider.fullName || "Unknown Rider",
+        phone: ride.rider.phone || null,
         rating: ride.rider.rating || 5.0,
       },
       driver: {
@@ -884,11 +923,7 @@ exports.rejectRide = async (req, res) => {
     // Fetch ride data with rider information for notifications
     const ride = await Ride.findById(rideId).populate({
       path: "rider",
-      select: "user",
-      populate: {
-        path: "user",
-        select: "fullName",
-      },
+      select: "fullName phone",
     });
 
     if (!ride) {
@@ -946,13 +981,13 @@ exports.rejectRide = async (req, res) => {
 // Start ride
 exports.startRide = async (req, res) => {
   try {
-    const ride = await Ride.findById(req.params.rideId);
+    const ride = await Ride.findById(req.params.rideId).populate("driver");
     if (!ride) {
       return sendError(res, "Ride not found", 404);
     }
 
     // Check if driver is authorized
-    if (ride.driver.toString() !== req.user.id) {
+    if (!ride.driver || ride.driver.user.toString() !== req.user.id) {
       return sendError(res, "You are not authorized to start this ride", 403);
     }
 
@@ -998,7 +1033,11 @@ exports.completeRide = async (req, res) => {
     }
 
     // Check if driver is authorized
-    if (!ride.driver || ride.driver.toString() !== req.user.id) {
+    if (
+      !ride.driver ||
+      !ride.driver.user ||
+      ride.driver.user._id.toString() !== req.user.id
+    ) {
       return sendError(
         res,
         "You are not authorized to complete this ride",
@@ -1062,20 +1101,13 @@ exports.completeRide = async (req, res) => {
         const rideTransaction = {
           type: "ride",
           amount: finalFare,
-          payment: payment._id,
+          payment: null, // Will be updated after payment creation
           ride: ride._id,
           description: "Ride payment",
         };
         wallet.transactions.push(rideTransaction);
         await wallet.save();
         paymentStatus = "paid";
-
-        // Emit real-time transaction notification
-        socketService.notifyWalletTransaction(ride.rider.toString(), {
-          ...rideTransaction,
-          _id: wallet.transactions[wallet.transactions.length - 1]._id,
-          timestamp: new Date(),
-        });
 
         // Emit real-time wallet spending notification
         socketService.notifyWalletSpending(ride.rider.toString(), {
@@ -1120,6 +1152,16 @@ exports.completeRide = async (req, res) => {
       status: paymentStatus,
       paymentMethod: ride.paymentMethod,
     });
+
+    // Update the wallet transaction with payment._id if payment was successful
+    if (paymentStatus === "paid") {
+      const wallet = await Wallet.findOne({ user: ride.rider });
+      if (wallet && wallet.transactions.length > 0) {
+        wallet.transactions[wallet.transactions.length - 1].payment =
+          payment._id;
+        await wallet.save();
+      }
+    }
 
     // Enhanced real-time notifications for ride completion
 

@@ -7,6 +7,10 @@ const Rider = require("../models/Rider");
 const Ride = require("../models/Ride");
 const Payment = require("../models/Payment");
 const ActiveStatusHistory = require("../models/ActiveStatusHistory");
+const PaymentMethod = require("../models/PaymentMethod");
+const SavedLocation = require("../models/SavedLocation");
+const RewardTransaction = require("../models/RewardTransaction");
+const Wallet = require("../models/Wallet");
 const { sendSuccess, sendError } = require("../utils/responseHelper");
 const { auditLoggers } = require("../middlewares/audit");
 const { driverPhotoUpload } = require("../config/multerConfig");
@@ -1906,10 +1910,35 @@ exports.getRiderDetails = async (req, res) => {
       status: "completed",
     });
 
-    // Get wallet balance
-    const Wallet = require("../models/Wallet");
+    // Get full wallet details
     const wallet = await Wallet.findOne({ user: rider.user._id });
-    const savedAmount = wallet ? wallet.balance : 0;
+
+    // Get payment methods
+    const paymentMethods = await PaymentMethod.find({ user: rider.user._id });
+
+    // Get saved locations
+    const savedLocations = await SavedLocation.find({ user: rider.user._id });
+
+    // Get active ride
+    const activeRide = await Ride.findOne({
+      rider: rider._id,
+      status: { $in: ["requested", "accepted", "in_progress"] },
+    })
+      .populate("driver", "user vehicle")
+      .populate({
+        path: "driver",
+        populate: {
+          path: "user",
+          select: "fullName",
+        },
+      });
+
+    // Get reward activity
+    const rewardActivity = await RewardTransaction.find({
+      user: rider.user._id,
+    })
+      .sort({ createdAt: -1 })
+      .limit(10); // Last 10 transactions
 
     // Calculate total spent
     const totalSpentAgg = await Ride.aggregate([
@@ -1941,22 +1970,68 @@ exports.getRiderDetails = async (req, res) => {
       activeStatus: rider.activeStatus,
       createdAt: rider.createdAt,
       updatedAt: rider.updatedAt,
-      // Dashboard data
-      totalRides,
-      savedAmount,
-      totalSpent,
-      referralEarnings,
-      // User data
-      username: rider.user.username,
-      fullName: rider.user.fullName,
-      email: rider.user.email,
-      phone: rider.user.phone,
-      address: rider.user.address,
-      dateOfBirth: rider.user.dateOfBirth,
-      preferences: rider.user.preferences,
-      isVerified: rider.user.isVerified,
-      userCreatedAt: rider.user.createdAt,
-      userUpdatedAt: rider.user.updatedAt,
+      // Rider profile (user data)
+      profile: {
+        username: rider.user.username,
+        fullName: rider.user.fullName,
+        email: rider.user.email,
+        phone: rider.user.phone,
+        address: rider.user.address,
+        dateOfBirth: rider.user.dateOfBirth,
+        preferences: rider.user.preferences,
+        isVerified: rider.user.isVerified,
+        userCreatedAt: rider.user.createdAt,
+        userUpdatedAt: rider.user.updatedAt,
+      },
+      // Wallet
+      wallet: wallet
+        ? {
+            _id: wallet._id,
+            balance: wallet.balance,
+            currency: wallet.currency,
+            transactions: wallet.transactions,
+            createdAt: wallet.createdAt,
+            updatedAt: wallet.updatedAt,
+          }
+        : null,
+      // Payment methods
+      paymentMethods,
+      // Saved locations
+      savedLocations,
+      // Rider dashboard data
+      dashboard: {
+        totalRides,
+        savedAmount: wallet ? wallet.balance : 0,
+        totalSpent,
+        referralEarnings,
+      },
+      // Active ride
+      activeRide: activeRide
+        ? {
+            rideId: activeRide._id,
+            status: activeRide.status,
+            pickup: activeRide.pickup,
+            dropoff: activeRide.dropoff,
+            fare: activeRide.fare,
+            estimatedFare: activeRide.estimatedFare,
+            distance: activeRide.actualDistance || activeRide.estimatedDistance,
+            duration: activeRide.actualDuration || activeRide.estimatedDuration,
+            driver: activeRide.driver
+              ? {
+                  driverId: activeRide.driver._id,
+                  name: activeRide.driver.user?.fullName || "Unknown Driver",
+                  vehicle: activeRide.driver.vehicle,
+                  rating: activeRide.driver.rating,
+                }
+              : null,
+            createdAt: activeRide.createdAt,
+            updatedAt: activeRide.updatedAt,
+          }
+        : null,
+      // Active status (already included above)
+      // Referral information (already included above)
+      // Reward activity
+      rewardActivity,
     };
 
     sendSuccess(

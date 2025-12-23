@@ -1033,10 +1033,7 @@ async function getNearbyRideRequests(driverLat, driverLon) {
       createdAt: { $gte: twoMinutesAgo },
     }).populate({
       path: "rider",
-      populate: {
-        path: "user",
-        select: "fullName",
-      },
+      select: "fullName rating photo",
     });
 
     const rideRequests = [];
@@ -1063,7 +1060,7 @@ async function getNearbyRideRequests(driverLat, driverLon) {
         const rider = ride.rider;
         const riderInfo = rider
           ? {
-              name: rider.user?.fullName || "Unknown Rider",
+              name: rider.fullName || "Unknown Rider",
               rating: rider.rating || 5.0,
               photo: rider.photo ? `/api/v1/riders/${rider._id}/photo` : null,
             }

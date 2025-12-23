@@ -25,26 +25,7 @@ console.log("Socket.IO service initialized");
 // Make io accessible in routes/controllers
 app.set("io", io);
 
-// Socket.io connection handling
-io.on("connection", (socket) => {
-  console.log("User connected:", socket.id);
-
-  // Join user-specific room
-  socket.on("join", (userId) => {
-    socket.join(userId);
-    console.log(`User ${userId} joined room`);
-  });
-
-  // Handle ride-related events
-  socket.on("ride_request", (data) => {
-    // Handle ride request events
-    console.log("Ride request event:", data);
-  });
-
-  socket.on("disconnect", () => {
-    console.log("User disconnected:", socket.id);
-  });
-});
+// Socket.io connection handling is now managed by socketService
 
 // Connect to MongoDB and start server
 mongoose

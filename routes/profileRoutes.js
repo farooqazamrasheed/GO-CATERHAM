@@ -70,5 +70,10 @@ router.put(
   checkPermission("update_profile"),
   profileController.updateSettings
 );
+router.post(
+  "/settings/reset",
+  checkPermission("update_profile"),
+  profileController.resetSettingsToDefaults
+);
 
 module.exports = router;

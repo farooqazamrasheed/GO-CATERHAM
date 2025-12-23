@@ -44,8 +44,33 @@ class SocketService {
    * Setup socket event handlers
    */
   setupSocketHandlers() {
-    this.io.on("connection", (socket) => {
+    this.io.on("connection", async (socket) => {
       console.log("User connected:", socket.id);
+
+      try {
+        // Authenticate user from token
+        const token = socket.handshake.query.token;
+        if (!token) {
+          console.log("No token provided for socket connection");
+          socket.disconnect();
+          return;
+        }
+
+        const { verifyToken } = require("../utils/jwt");
+        const decoded = verifyToken(token);
+        const userId = decoded.id;
+
+        // Automatically join user-specific room
+        socket.join(userId);
+        console.log(`User ${userId} automatically joined room`);
+
+        // Store userId on socket for later use
+        socket.userId = userId;
+      } catch (error) {
+        console.log("Socket authentication failed:", error.message);
+        socket.disconnect();
+        return;
+      }
 
       //-----------------------------------------------------------------
       // // Log all incoming socket events
@@ -53,12 +78,6 @@ class SocketService {
       //   console.log(`Socket event received: ${event}`, args);
       // });
       //-----------------------------------------------------------------
-
-      // Join user-specific room
-      socket.on("join", (userId) => {
-        socket.join(userId);
-        console.log(`User ${userId} joined room`);
-      });
 
       // Dashboard subscription for real-time updates
       socket.on("subscribe_dashboard", (data) => {
@@ -304,6 +323,7 @@ class SocketService {
       const Wallet = require("../models/Wallet");
       const Ride = require("../models/Ride");
       const User = require("../models/User");
+      const { verifyToken } = require("../utils/jwt");
 
       // Get rider profile and user
       const rider = await Rider.findOne({ user: riderId });
@@ -730,6 +750,13 @@ class SocketService {
    * @param {Object} rideData - Ride data
    */
   notifyDriverAssigned(riderId, driverData, rideData) {
+    if (!driverData) {
+      console.error(
+        "Driver data is null in notifyDriverAssigned for rider",
+        riderId
+      );
+      return;
+    }
     this.notifyUser(riderId, "driver_assigned", {
       rideId: rideData._id,
       driver: {
@@ -2081,6 +2108,18 @@ class SocketService {
       });
       console.log(`Redemption failure notification sent to rider ${riderId}`);
     }
+  }
+
+  /**
+   * Notify user about settings update
+   * @param {string} userId - User ID
+   * @param {Object} settingsData - Updated settings data
+   */
+  notifySettingsUpdated(userId, settingsData) {
+    this.notifyUser(userId, "settings_update", {
+      settings: settingsData,
+      timestamp: new Date(),
+    });
   }
 }
 

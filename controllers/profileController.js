@@ -465,10 +465,39 @@ exports.updateSettings = async (req, res) => {
 
     await settings.save();
 
+    // Real-time notification for settings update
+    const socketService = require("../services/socketService");
+    socketService.notifySettingsUpdated(req.user.id, settings);
+
     sendSuccess(res, { settings }, "Settings updated successfully", 200);
   } catch (error) {
     console.error("Update settings error:", error);
     sendError(res, "Failed to update settings", 500);
+  }
+};
+
+// Reset settings to defaults
+exports.resetSettingsToDefaults = async (req, res) => {
+  try {
+    // Delete existing settings - this will recreate with defaults
+    await UserSettings.findOneAndDelete({ user: req.user.id });
+
+    // Create new settings with all default values
+    const defaultSettings = await UserSettings.create({ user: req.user.id });
+
+    // Real-time notification for settings reset
+    const socketService = require("../services/socketService");
+    socketService.notifySettingsUpdated(req.user.id, defaultSettings);
+
+    sendSuccess(
+      res,
+      { settings: defaultSettings },
+      "Settings reset to defaults successfully",
+      200
+    );
+  } catch (error) {
+    console.error("Reset settings error:", error);
+    sendError(res, "Failed to reset settings", 500);
   }
 };
 

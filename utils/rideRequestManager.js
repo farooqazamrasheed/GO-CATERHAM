@@ -36,47 +36,68 @@ class RideRequestManager {
    * @param {string} rideId - Ride ID
    * @param {string} driverId - Driver ID who accepted
    */
-  async acceptRide(rideId, driverId) {
+  async acceptRide(rideId, driverUserId) {
     // Clear the timer
     this.clearTimer(rideId);
 
     try {
+      // Find the driver document by user ID
+      const driver = await Driver.findOne({ user: driverUserId });
+      if (!driver) {
+        throw new Error("Driver not found");
+      }
+
       // Update ride status
-      const ride = await Ride.findByIdAndUpdate(
-        rideId,
+      await Ride.findByIdAndUpdate(rideId, {
+        status: "accepted",
+        driver: driver._id, // Use driver document ID, not user ID
+        acceptedAt: new Date(),
+      });
+
+      // Fetch the updated ride with populated fields
+      const ride = await Ride.findById(rideId).populate([
+        { path: "rider" },
         {
-          status: "accepted",
-          driver: driverId,
-          acceptedAt: new Date(),
+          path: "driver",
+          populate: { path: "user", select: "fullName phone" },
         },
-        { new: true }
-      ).populate("rider", "user");
+      ]);
+
+      console.log(
+        "DEBUG: Ride populated rider:",
+        ride.rider,
+        "type:",
+        typeof ride.rider,
+        "toString:",
+        ride.rider.toString()
+      );
 
       // Update driver status to busy
-      await Driver.findByIdAndUpdate(driverId, { status: "busy" });
+      await Driver.findByIdAndUpdate(driver._id, { status: "busy" });
 
       // Notify admins about ride status change
       await socketService.notifyAdminRideUpdate(ride);
 
-      // Remove from queue
-      this.requestQueue.delete(rideId);
-
-      console.log(`Ride ${rideId} accepted by driver ${driverId}`);
+      console.log(`Ride ${rideId} accepted by driver ${driverUserId}`);
 
       // Send real-time notification to rider
-      socketService.notifyDriverAssigned(
-        ride.rider.toString(),
-        ride.driver,
-        ride
-      );
+      const riderId = ride.rider._id
+        ? ride.rider._id.toString()
+        : ride.rider.toString();
+      console.log("DEBUG: Using riderId:", riderId);
+      socketService.notifyDriverAssigned(riderId, ride.driver, ride);
 
       // Send real-time notification to other drivers (ride taken)
       const otherDrivers = this.requestQueue.get(rideId) || [];
-      otherDrivers.forEach((driverId) => {
-        if (driverId !== driverId) {
-          socketService.notifyRideTaken(driverId, rideId);
+      console.log("DEBUG: Other drivers in queue:", otherDrivers);
+      otherDrivers.forEach((otherDriverId) => {
+        if (otherDriverId !== driverUserId) {
+          socketService.notifyRideTaken(otherDriverId, rideId);
         }
       });
+
+      // Remove from queue after notifications
+      this.requestQueue.delete(rideId);
 
       return ride;
     } catch (error) {
@@ -111,8 +132,12 @@ class RideRequestManager {
         `Ride ${rideId} rejected by driver ${driverId}, offering to next driver ${nextDriverId}`
       );
 
+      // Fetch full ride details for notification
+      const ride = await Ride.findById(rideId);
+      console.log("DEBUG: Sending full ride to next driver:", !!ride);
+
       // Send real-time notification to next driver
-      socketService.notifyRideRequest(nextDriverId, { _id: rideId });
+      socketService.notifyRideRequest(nextDriverId, ride);
     } catch (error) {
       console.error("Error rejecting ride:", error);
       throw error;
@@ -147,11 +172,11 @@ class RideRequestManager {
       );
 
       // Send notification to rider about cancellation
-      socketService.notifyRideCancelled(
-        ride.rider.toString(),
-        "No driver available",
-        ride
-      );
+      const riderId = ride.rider._id
+        ? ride.rider._id.toString()
+        : ride.rider.toString();
+      console.log("DEBUG: Auto-reject riderId:", riderId);
+      socketService.notifyRideCancelled(riderId, "No driver available", ride);
 
       // Notify admins about ride cancellation
       await socketService.notifyAdminRideUpdate(ride);
