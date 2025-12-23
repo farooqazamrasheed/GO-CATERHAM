@@ -193,7 +193,8 @@ exports.signup = async (req, res) => {
 
     try {
       if (role === "driver") {
-        const driverProfile = await Driver.create({
+        console.log("Creating driver profile for user:", user._id);
+        console.log("Driver data:", {
           user: user._id,
           licenseNumber: licenseNumber.trim(),
           vehicle,
@@ -206,9 +207,29 @@ exports.signup = async (req, res) => {
           activeStatus: "active",
         });
 
+        const driverProfile = await Driver.create({
+          user: user._id,
+          licenseNumber: licenseNumber.trim(),
+          vehicle,
+          vehicleModel,
+          vehicleYear,
+          vehicleColor,
+          vehicleType: vehicleType || "sedan",
+          numberPlateOfVehicle: numberPlateOfVehicle.trim(),
+          photo: null,
+          activeStatus: "active",
+        });
+
+        console.log("Driver profile created:", driverProfile._id);
+
         // Calculate estimated approval time (24-48 hours from now)
         const estimatedApprovalTime = new Date(
           Date.now() + 48 * 60 * 60 * 1000
+        );
+
+        console.log(
+          "Creating ActiveStatusHistory for driver:",
+          driverProfile._id
         );
 
         // Create initial activation history
@@ -217,9 +238,11 @@ exports.signup = async (req, res) => {
           userType: "driver",
           driverId: driverProfile._id,
           action: "activate",
-          performedBy: driverProfile._id,
+          performedBy: user._id,
           timestamp: new Date(),
         });
+
+        console.log("ActiveStatusHistory created for driver");
 
         profileInfo = {
           onlineStatus: driverProfile.status,
