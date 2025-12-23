@@ -102,6 +102,14 @@ router.get(
   driverController.downloadEarningsReport
 );
 
+// Account deactivation
+router.put(
+  "/deactivate",
+  checkPermission("update_profile"),
+  parseFormData,
+  driverController.deactivateAccount
+);
+
 // Driver management - for admins with permissions
 router.get(
   "/:driverId",

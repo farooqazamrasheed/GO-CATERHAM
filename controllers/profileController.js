@@ -510,12 +510,33 @@ exports.activateDriver = async (req, res) => {
       return sendError(res, "Unauthorized", 403);
     const driver = await Driver.findById(driverId);
     if (!driver) return sendError(res, "Driver not found", 404);
+
     // If not admin, check if it's their own account
-    if (
-      !["admin", "superadmin", "subadmin"].includes(req.user.role) &&
-      driver.user.toString() !== req.user.id
-    )
+    const isAdmin = ["admin", "superadmin", "subadmin"].includes(req.user.role);
+    if (!isAdmin && driver.user.toString() !== req.user.id)
       return sendError(res, "Unauthorized", 403);
+
+    // If user is trying to reactivate their own account and it's currently deactivated
+    if (!isAdmin && driver.activeStatus === "deactive") {
+      // Check the last deactivation history
+      const lastDeactivation = await ActiveStatusHistory.findOne({
+        userId: driver.user,
+        userType: "driver",
+        action: "deactivate",
+      }).sort({ timestamp: -1 });
+
+      // If last deactivation was by someone else (admin), deny self-reactivation
+      if (
+        lastDeactivation &&
+        lastDeactivation.performedBy.toString() !== req.user.id
+      ) {
+        return sendError(
+          res,
+          "Account was deactivated by admin. Please contact admin to reactivate.",
+          403
+        );
+      }
+    }
 
     await Driver.findByIdAndUpdate(driverId, { activeStatus: "active" });
 
@@ -535,7 +556,7 @@ exports.activateDriver = async (req, res) => {
         userType: "driver",
         action: "activate",
         timestamp: new Date(),
-        performedBy: driverId,
+        performedBy: req.user.id,
       });
     }
 
@@ -610,12 +631,33 @@ exports.activateRider = async (req, res) => {
       return sendError(res, "Unauthorized", 403);
     const rider = await Rider.findById(riderId);
     if (!rider) return sendError(res, "Rider not found", 404);
+
     // If not admin, check if it's their own account
-    if (
-      !["admin", "superadmin", "subadmin"].includes(req.user.role) &&
-      rider.user.toString() !== req.user.id
-    )
+    const isAdmin = ["admin", "superadmin", "subadmin"].includes(req.user.role);
+    if (!isAdmin && rider.user.toString() !== req.user.id)
       return sendError(res, "Unauthorized", 403);
+
+    // If user is trying to reactivate their own account and it's currently deactivated
+    if (!isAdmin && rider.activeStatus === "deactive") {
+      // Check the last deactivation history
+      const lastDeactivation = await ActiveStatusHistory.findOne({
+        userId: rider.user,
+        userType: "rider",
+        action: "deactivate",
+      }).sort({ timestamp: -1 });
+
+      // If last deactivation was by someone else (admin), deny self-reactivation
+      if (
+        lastDeactivation &&
+        lastDeactivation.performedBy.toString() !== req.user.id
+      ) {
+        return sendError(
+          res,
+          "Account was deactivated by admin. Please contact admin to reactivate.",
+          403
+        );
+      }
+    }
 
     await Rider.findByIdAndUpdate(riderId, { activeStatus: "active" });
 
@@ -635,7 +677,7 @@ exports.activateRider = async (req, res) => {
         userType: "rider",
         action: "activate",
         timestamp: new Date(),
-        performedBy: riderId,
+        performedBy: req.user.id,
       });
     }
 

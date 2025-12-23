@@ -60,6 +60,7 @@ const riderSchema = new mongoose.Schema(
       enum: ["active", "deactive"],
       default: "active",
     },
+    isDeactivated: { type: Boolean, default: false },
   },
   { timestamps: true }
 );

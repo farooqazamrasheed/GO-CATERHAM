@@ -1239,6 +1239,74 @@ exports.updateLocation = async (req, res) => {
   }
 };
 
+// Deactivate driver account
+exports.deactivateAccount = async (req, res) => {
+  try {
+    const { driverId, password, reason } = req.body;
+
+    // Validate required fields
+    if (!driverId || !password || !reason) {
+      return sendError(res, "driverId, password, and reason are required", 400);
+    }
+
+    // Find driver
+    const driver = await Driver.findById(driverId);
+    if (!driver) {
+      return sendError(res, "Driver not found", 404);
+    }
+
+    // Check if it's the driver's own account
+    if (driver.user.toString() !== req.user.id) {
+      return sendError(res, "Unauthorized to deactivate this account", 403);
+    }
+
+    // Find user to verify password
+    const user = await User.findById(req.user.id);
+    if (!user) {
+      return sendError(res, "User not found", 404);
+    }
+
+    // Verify password
+    const isMatch = await user.comparePassword(password);
+    if (!isMatch) {
+      return sendError(res, "Invalid password", 401);
+    }
+
+    // Check if already deactivated
+    if (driver.activeStatus === "deactive") {
+      return sendError(res, "Account is already deactivated", 400);
+    }
+
+    // Update activeStatus to "deactive"
+    driver.activeStatus = "deactive";
+    await driver.save();
+
+    // Create ActiveStatusHistory
+    const ActiveStatusHistory = require("../models/ActiveStatusHistory");
+    await ActiveStatusHistory.create({
+      userId: req.user.id,
+      userType: "driver",
+      driverId: driver._id,
+      action: "deactivate",
+      performedBy: driver._id,
+      reason: reason,
+      timestamp: new Date(),
+    });
+
+    // Notify via WebSocket (optional)
+    const socketService = require("../services/socketService");
+    socketService.notifyDriverStatusUpdate(
+      driver._id.toString(),
+      "deactivated"
+    );
+
+    sendSuccess(res, null, "Account deactivated successfully", 200);
+  } catch (error) {
+    console.error("Deactivate account error:", error);
+    sendError(res, "Failed to deactivate account", 500);
+  }
+};
+
 // Helper function to get hot zones
 async function getHotZones() {
   try {
