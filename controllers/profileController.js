@@ -576,25 +576,41 @@ exports.activateDriver = async (req, res) => {
 exports.deactivateDriver = async (req, res) => {
   try {
     const { driverId } = req.params;
+    const { password, reason } = req.body;
     const allowedRoles = ["driver", "admin", "superadmin", "subadmin"];
     if (!allowedRoles.includes(req.user.role))
       return sendError(res, "Unauthorized", 403);
-    const driver = await Driver.findById(driverId);
+    const driver = await Driver.findById(driverId).populate("user");
     if (!driver) return sendError(res, "Driver not found", 404);
+
+    const isSelfDeactivation = driver.user._id.toString() === req.user.id;
+    const isAdmin = ["admin", "superadmin", "subadmin"].includes(req.user.role);
+
     // If not admin, check if it's their own account
-    if (
-      !["admin", "superadmin", "subadmin"].includes(req.user.role) &&
-      driver.user.toString() !== req.user.id
-    )
+    if (!isAdmin && !isSelfDeactivation)
       return sendError(res, "Unauthorized", 403);
+
+    // Require password for self-deactivation
+    if (isSelfDeactivation && !password) {
+      return sendError(res, "Password is required for self-deactivation", 400);
+    }
+
+    // Validate password for self-deactivation
+    if (isSelfDeactivation) {
+      const isPasswordValid = await driver.user.comparePassword(password);
+      if (!isPasswordValid) {
+        return sendError(res, "Invalid password", 401);
+      }
+    }
 
     await Driver.findByIdAndUpdate(driverId, { activeStatus: "deactive" });
 
     const historyData = {
-      userId: driver.user,
+      userId: driver.user._id,
       userType: "driver",
       action: "deactivate",
       performedBy: req.user.id,
+      reason: reason,
     };
     historyData.driverId = driverId;
     await ActiveStatusHistory.create(historyData);
@@ -697,25 +713,41 @@ exports.activateRider = async (req, res) => {
 exports.deactivateRider = async (req, res) => {
   try {
     const { riderId } = req.params;
+    const { password, reason } = req.body;
     const allowedRoles = ["rider", "admin", "superadmin", "subadmin"];
     if (!allowedRoles.includes(req.user.role))
       return sendError(res, "Unauthorized", 403);
-    const rider = await Rider.findById(riderId);
+    const rider = await Rider.findById(riderId).populate("user");
     if (!rider) return sendError(res, "Rider not found", 404);
+
+    const isSelfDeactivation = rider.user._id.toString() === req.user.id;
+    const isAdmin = ["admin", "superadmin", "subadmin"].includes(req.user.role);
+
     // If not admin, check if it's their own account
-    if (
-      !["admin", "superadmin", "subadmin"].includes(req.user.role) &&
-      rider.user.toString() !== req.user.id
-    )
+    if (!isAdmin && !isSelfDeactivation)
       return sendError(res, "Unauthorized", 403);
+
+    // Require password for self-deactivation
+    if (isSelfDeactivation && !password) {
+      return sendError(res, "Password is required for self-deactivation", 400);
+    }
+
+    // Validate password for self-deactivation
+    if (isSelfDeactivation) {
+      const isPasswordValid = await rider.user.comparePassword(password);
+      if (!isPasswordValid) {
+        return sendError(res, "Invalid password", 401);
+      }
+    }
 
     await Rider.findByIdAndUpdate(riderId, { activeStatus: "deactive" });
 
     const historyData = {
-      userId: rider.user,
+      userId: rider.user._id,
       userType: "rider",
       action: "deactivate",
       performedBy: req.user.id,
+      reason: reason,
     };
     historyData.riderId = riderId;
     await ActiveStatusHistory.create(historyData);

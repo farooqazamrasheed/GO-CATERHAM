@@ -110,6 +110,14 @@ router.put(
   driverController.deactivateAccount
 );
 
+// Account activation
+router.put(
+  "/activate",
+  checkPermission("update_profile"),
+  parseFormData,
+  driverController.activateAccount
+);
+
 // Driver management - for admins with permissions
 router.get(
   "/:driverId",

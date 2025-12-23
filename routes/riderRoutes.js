@@ -9,6 +9,9 @@ const riderController = require("../controllers/riderController");
 const adminController = require("../controllers/adminController");
 const profileController = require("../controllers/profileController");
 
+// Middleware to parse form data for non-file routes
+const parseFormData = multer().none();
+
 // Public routes
 router.get("/", adminController.getRiders);
 
@@ -32,6 +35,22 @@ router.post(
 
 // Update status
 router.put("/status", multer().none(), riderController.updateStatus);
+
+// Deactivate account
+router.put(
+  "/deactivate",
+  checkPermission("update_profile"),
+  parseFormData,
+  riderController.deactivateAccount
+);
+
+// Activate account
+router.put(
+  "/activate",
+  checkPermission("update_profile"),
+  parseFormData,
+  riderController.activateAccount
+);
 
 // Get dashboard data
 router.get(

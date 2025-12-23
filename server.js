@@ -14,7 +14,7 @@ const server = http.createServer(app);
 const io = socketIo(server, {
   cors: {
     origin: "*", // Configure this for production
-    methods: ["GET", "POST"],
+    methods: ["GET", "POST", "PUT", "DELETE"],
   },
 });
 

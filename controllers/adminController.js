@@ -2443,6 +2443,7 @@ exports.activateDriverAccount = async (req, res) => {
 exports.deactivateDriverAccount = async (req, res) => {
   try {
     const { driverId } = req.params;
+    const { reason } = req.body;
     const userId = req.user.id;
 
     const targetDriver = await Driver.findById(driverId);
@@ -2455,9 +2456,6 @@ exports.deactivateDriverAccount = async (req, res) => {
       return sendError(res, "Admin profile not found", 404);
     }
 
-    // Permission checks - subadmin can deactivate, admin can, superadmin can
-    // No restrictions for deactivation
-
     // Update activeStatus
     await Driver.findByIdAndUpdate(driverId, { activeStatus: "deactive" });
 
@@ -2467,6 +2465,7 @@ exports.deactivateDriverAccount = async (req, res) => {
       userType: "driver",
       action: "deactivate",
       performedBy: userId,
+      reason: reason,
     };
     historyData.driverId = driverId;
     await ActiveStatusHistory.create(historyData);
@@ -2552,28 +2551,17 @@ exports.activateRiderAccount = async (req, res) => {
 exports.deactivateRiderAccount = async (req, res) => {
   try {
     const { riderId } = req.params;
-    const { password, reason } = req.body;
+    const { reason } = req.body;
     const userId = req.user.id;
-
-    // Validate required fields
-    if (!password) {
-      return sendError(res, "Password is required", 400);
-    }
 
     const targetRider = await Rider.findById(riderId);
     if (!targetRider) {
       return sendError(res, "Rider not found", 404);
     }
 
-    const currentAdmin = await Admin.findOne({ user: userId }).populate("user");
+    const currentAdmin = await Admin.findOne({ user: userId });
     if (!currentAdmin) {
       return sendError(res, "Admin profile not found", 404);
-    }
-
-    // Validate admin password
-    const isPasswordValid = await currentAdmin.user.comparePassword(password);
-    if (!isPasswordValid) {
-      return sendError(res, "Invalid password", 401);
     }
 
     // Update activeStatus

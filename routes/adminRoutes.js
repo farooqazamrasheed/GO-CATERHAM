@@ -113,6 +113,7 @@ router.put(
 );
 router.put(
   "/drivers/:driverId/deactivate",
+  parseFormData,
   checkPermission("manage_drivers"),
   adminController.deactivateDriverAccount
 );

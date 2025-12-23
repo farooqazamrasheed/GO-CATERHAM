@@ -4,6 +4,8 @@ const Payment = require("../models/Payment");
 const Rider = require("../models/Rider");
 const Driver = require("../models/Driver");
 const LiveLocation = require("../models/LiveLocation");
+const ActiveStatusHistory = require("../models/ActiveStatusHistory");
+const User = require("../models/User");
 const { sendSuccess, sendError } = require("../utils/responseHelper");
 const socketService = require("../services/socketService");
 const path = require("path");
@@ -45,6 +47,14 @@ const SURREY_BOUNDARY = {
       [-0.8088591650132173, 51.1567073053445],
       [-0.8452124718280913, 51.192817893194615],
       [-0.7647820542412376, 51.23981446058468],
+      [74.43945717928972, 31.48625965811391],
+      [74.43745247486578, 31.4863339860257],
+      [74.41326528017328, 31.485033239039396],
+      [74.40829709964137, 31.48882393695139],
+      [74.41069402884509, 31.497259546636712],
+      [74.42097903415561, 31.502053012186792],
+      [74.43993656513115, 31.496702150972723],
+      [74.43950075982167, 31.486296822077165],
     ],
   ],
 };
@@ -503,6 +513,134 @@ exports.getPhoto = async (req, res) => {
   } catch (error) {
     console.error("Get photo error:", error);
     sendError(res, "Failed to retrieve photo", 500);
+  }
+};
+
+// Deactivate rider account
+exports.deactivateAccount = async (req, res) => {
+  try {
+    const { riderId, password, reason } = req.body;
+
+    // Validate required fields
+    if (!riderId || !password || !reason) {
+      return sendError(res, "riderId, password, and reason are required", 400);
+    }
+
+    // Find rider
+    const rider = await Rider.findById(riderId);
+    if (!rider) {
+      return sendError(res, "Rider not found", 404);
+    }
+
+    // Check if it's the rider's own account
+    if (rider.user.toString() !== req.user.id) {
+      return sendError(res, "Unauthorized to deactivate this account", 403);
+    }
+
+    // Find user to verify password
+    const user = await User.findById(req.user.id);
+    if (!user) {
+      return sendError(res, "User not found", 404);
+    }
+
+    // Verify password
+    const isMatch = await user.comparePassword(password);
+    if (!isMatch) {
+      return sendError(res, "Invalid password", 401);
+    }
+
+    // Check if already deactivated
+    if (rider.activeStatus === "deactive") {
+      return sendError(res, "Account is already deactivated", 400);
+    }
+
+    // Update activeStatus to "deactive" and isDeactivated to true
+    rider.activeStatus = "deactive";
+    rider.isDeactivated = true;
+    await rider.save();
+
+    // Create ActiveStatusHistory
+    await ActiveStatusHistory.create({
+      userId: req.user.id,
+      userType: "rider",
+      riderId: rider._id,
+      action: "deactivate",
+      performedBy: rider._id,
+      reason: reason,
+      timestamp: new Date(),
+    });
+
+    // Notify via WebSocket (optional)
+    socketService.notifyRiderStatusUpdate(rider._id.toString(), "deactivated");
+
+    sendSuccess(res, null, "Account deactivated successfully", 200);
+  } catch (error) {
+    console.error("Deactivate account error:", error);
+    sendError(res, "Failed to deactivate account", 500);
+  }
+};
+
+// Activate rider account
+exports.activateAccount = async (req, res) => {
+  try {
+    const { riderId, password, reason } = req.body;
+
+    // Validate required fields
+    if (!riderId || !password) {
+      return sendError(res, "riderId and password are required", 400);
+    }
+
+    // Find rider
+    const rider = await Rider.findById(riderId);
+    if (!rider) {
+      return sendError(res, "Rider not found", 404);
+    }
+
+    // Check if it's the rider's own account
+    if (rider.user.toString() !== req.user.id) {
+      return sendError(res, "Unauthorized to activate this account", 403);
+    }
+
+    // Find user to verify password
+    const user = await User.findById(req.user.id);
+    if (!user) {
+      return sendError(res, "User not found", 404);
+    }
+
+    // Verify password
+    const isMatch = await user.comparePassword(password);
+    if (!isMatch) {
+      return sendError(res, "Invalid password", 401);
+    }
+
+    // Check if already activated
+    if (rider.activeStatus === "active") {
+      return sendError(res, "Account is already activated", 400);
+    }
+
+    // Update activeStatus to "active" and isDeactivated to false
+    rider.activeStatus = "active";
+    rider.isDeactivated = false;
+    await rider.save();
+
+    // Create ActiveStatusHistory
+    await ActiveStatusHistory.create({
+      userId: req.user.id,
+      userType: "rider",
+      riderId: rider._id,
+      action: "activate",
+      performedBy: rider._id,
+      reason: reason || "Self-activation",
+      timestamp: new Date(),
+    });
+
+    // Notify via WebSocket (optional)
+    socketService.notifyRiderStatusUpdate(rider._id.toString(), "activated");
+
+    sendSuccess(res, null, "Account activated successfully", 200);
+  } catch (error) {
+    console.error("Activate account error:", error);
+    sendError(res, "Failed to activate account", 500);
   }
 };
 

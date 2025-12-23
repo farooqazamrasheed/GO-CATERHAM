@@ -488,14 +488,7 @@ exports.login = async (req, res) => {
         );
       }
 
-      // Check if rider is deactivated
-      if (rider.activeStatus === "deactive") {
-        return sendError(
-          res,
-          "Your account has been deactivated. Please contact admin to reactivate.",
-          403
-        );
-      }
+      // Note: Deactivated riders can still login to self-activate their account
 
       // Update status to online if not suspended
       const updatedRider = await Rider.findOneAndUpdate(
