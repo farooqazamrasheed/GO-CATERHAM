@@ -312,6 +312,8 @@ exports.createDriver = async (req, res) => {
     } = req.body;
     const createdBy = req.user.id;
 
+    console.log("Admin creating driver for:", { username, email, fullName });
+
     // Validate required fields
     if (!username || !fullName || !email || !password || !vehicle) {
       return sendError(
@@ -327,14 +329,36 @@ exports.createDriver = async (req, res) => {
       return sendError(res, "Phone must be exactly 11 digits", 400);
     }
 
+    // Validate username
+    const sanitizedUsername = username.replace(/\s+/g, "_").toLowerCase();
+    if (sanitizedUsername.length < 3 || sanitizedUsername.length > 30) {
+      return sendError(
+        res,
+        "Username must be between 3 and 30 characters",
+        400
+      );
+    }
+    if (!/^[a-zA-Z0-9_]+$/.test(sanitizedUsername)) {
+      return sendError(
+        res,
+        "Username can only contain letters, numbers, and underscores",
+        400
+      );
+    }
+
     // Check if email already exists
-    const existingUser = await User.findOne({ email });
+    const existingUser = await User.findOne({ email: email.toLowerCase() });
     if (existingUser) {
       return sendError(res, "Email already registered", 409);
     }
 
-    // Sanitize username: replace spaces with underscores and lowercase
-    const sanitizedUsername = username.replace(/\s+/g, "_").toLowerCase();
+    // Check if phone already exists
+    if (phone) {
+      const existingPhone = await User.findOne({ phone });
+      if (existingPhone) {
+        return sendError(res, "Phone already registered", 409);
+      }
+    }
 
     // Check if username already exists
     const existingUsername = await User.findOne({
@@ -343,6 +367,53 @@ exports.createDriver = async (req, res) => {
     if (existingUsername) {
       return sendError(res, "Username already taken", 409);
     }
+
+    // Validate vehicle year if provided
+    if (
+      vehicleYear &&
+      (vehicleYear < 1900 || vehicleYear > new Date().getFullYear() + 1)
+    ) {
+      return sendError(res, "Invalid vehicle year", 400);
+    }
+
+    // Validate vehicle type if provided
+    const validVehicleTypes = [
+      "sedan",
+      "suv",
+      "electric",
+      "hatchback",
+      "coupe",
+      "convertible",
+      "wagon",
+      "pickup",
+      "van",
+      "motorcycle",
+    ];
+    if (vehicleType && !validVehicleTypes.includes(vehicleType)) {
+      return sendError(res, "Invalid vehicle type", 400);
+    }
+
+    // Check for duplicate license number and number plate BEFORE creating user
+    if (licenseNumber || numberPlateOfVehicle) {
+      const existingDriver = await Driver.findOne({
+        $or: [
+          licenseNumber ? { licenseNumber: licenseNumber.trim() } : null,
+          numberPlateOfVehicle
+            ? { numberPlateOfVehicle: numberPlateOfVehicle.trim() }
+            : null,
+        ].filter(Boolean),
+      });
+
+      if (existingDriver) {
+        const field =
+          existingDriver.licenseNumber === licenseNumber?.trim()
+            ? "License number"
+            : "Number plate";
+        return sendError(res, `${field} already registered`, 409);
+      }
+    }
+
+    console.log("Creating user for driver");
 
     // Create user
     const user = await User.create({
@@ -355,6 +426,8 @@ exports.createDriver = async (req, res) => {
       isVerified: false, // Like public signup - needs admin approval
     });
 
+    console.log("User created:", user._id);
+
     // Create driver profile
     const driverData = {
       user: user._id,
@@ -363,18 +436,43 @@ exports.createDriver = async (req, res) => {
       status: "offline", // Offline until approved
       verificationStatus: "unverified", // Unverified until approved
       photo: null,
+      activeStatus: "active",
     };
 
     // Add optional fields if provided
-    if (licenseNumber) driverData.licenseNumber = licenseNumber;
+    if (licenseNumber) driverData.licenseNumber = licenseNumber.trim();
     if (vehicleModel) driverData.vehicleModel = vehicleModel;
     if (vehicleYear) driverData.vehicleYear = vehicleYear;
     if (vehicleColor) driverData.vehicleColor = vehicleColor;
     if (vehicleType) driverData.vehicleType = vehicleType;
     if (numberPlateOfVehicle)
-      driverData.numberPlateOfVehicle = numberPlateOfVehicle;
+      driverData.numberPlateOfVehicle = numberPlateOfVehicle.trim();
+
+    console.log("Creating driver profile:", driverData);
 
     const driver = await Driver.create(driverData);
+
+    console.log("Driver profile created:", driver._id);
+
+    // Create initial activation history
+    await ActiveStatusHistory.create({
+      userId: user._id,
+      userType: "driver",
+      driverId: driver._id,
+      action: "activate",
+      performedBy: createdBy,
+      timestamp: new Date(),
+    });
+
+    console.log("ActiveStatusHistory created for driver");
+
+    // Send welcome notification
+    try {
+      await notificationService.sendWelcomeEmail(user, "driver");
+    } catch (notificationError) {
+      console.error("Welcome notification failed:", notificationError.message);
+      // Continue without failing the creation
+    }
 
     sendSuccess(
       res,
