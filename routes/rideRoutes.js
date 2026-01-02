@@ -42,6 +42,11 @@ router.get(
   require("../controllers/riderController").getRideHistory
 ); // Alias for /api/v1/riders/rides
 router.get(
+  "/my-rides",
+  checkPermission("view_rides"),
+  require("../controllers/riderController").getRideHistory
+); // Alias for rider ride history
+router.get(
   "/:rideId/status",
   checkPermission("view_ride_status"),
   rideController.getRideStatus

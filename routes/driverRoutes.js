@@ -118,6 +118,20 @@ router.put(
   driverController.activateAccount
 );
 
+// Driver earnings
+router.get(
+  "/earnings",
+  checkPermission("view_earnings"),
+  driverController.getEarningsReport
+);
+
+// Driver stats
+router.get(
+  "/stats",
+  checkPermission("view_profile"),
+  driverController.getStats
+);
+
 // Driver management - for admins with permissions
 router.get(
   "/:driverId",

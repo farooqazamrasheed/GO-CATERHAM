@@ -1380,6 +1380,163 @@ exports.activateAccount = async (req, res) => {
   }
 };
 
+// Get driver stats
+exports.getStats = async (req, res) => {
+  try {
+    const driverId = req.user.id;
+
+    // Get driver profile
+    const driver = await Driver.findOne({ user: driverId });
+    if (!driver) {
+      return sendError(res, "Driver profile not found", 404);
+    }
+
+    // Calculate date ranges
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+
+    const weekStart = new Date(today);
+    weekStart.setDate(today.getDate() - today.getDay()); // Start of week (Sunday)
+    const weekEnd = new Date(weekStart);
+    weekEnd.setDate(weekStart.getDate() + 7);
+
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    const monthEnd = new Date(
+      now.getFullYear(),
+      now.getMonth() + 1,
+      0,
+      23,
+      59,
+      59
+    );
+
+    // Get statistics
+    const [todayStats, weekStats, monthStats, totalStats] = await Promise.all([
+      // Today's stats
+      Ride.aggregate([
+        {
+          $match: {
+            driver: driver._id,
+            status: "completed",
+            updatedAt: { $gte: today, $lt: tomorrow },
+          },
+        },
+        {
+          $group: {
+            _id: null,
+            earnings: { $sum: "$driverEarnings" },
+            rides: { $sum: 1 },
+          },
+        },
+      ]),
+
+      // This week's stats
+      Ride.aggregate([
+        {
+          $match: {
+            driver: driver._id,
+            status: "completed",
+            updatedAt: { $gte: weekStart, $lt: weekEnd },
+          },
+        },
+        {
+          $group: {
+            _id: null,
+            earnings: { $sum: "$driverEarnings" },
+            rides: { $sum: 1 },
+          },
+        },
+      ]),
+
+      // This month's stats
+      Ride.aggregate([
+        {
+          $match: {
+            driver: driver._id,
+            status: "completed",
+            updatedAt: { $gte: monthStart, $lte: monthEnd },
+          },
+        },
+        {
+          $group: {
+            _id: null,
+            earnings: { $sum: "$driverEarnings" },
+            rides: { $sum: 1 },
+          },
+        },
+      ]),
+
+      // Total stats
+      Ride.aggregate([
+        {
+          $match: {
+            driver: driver._id,
+            status: "completed",
+          },
+        },
+        {
+          $group: {
+            _id: null,
+            totalEarnings: { $sum: "$driverEarnings" },
+            totalRides: { $sum: 1 },
+          },
+        },
+      ]),
+    ]);
+
+    // Extract stats
+    const todayEarnings = todayStats[0]?.earnings || 0;
+    const todayRides = todayStats[0]?.rides || 0;
+    const weekEarnings = weekStats[0]?.earnings || 0;
+    const weekRides = weekStats[0]?.rides || 0;
+    const monthEarnings = monthStats[0]?.earnings || 0;
+    const monthRides = monthStats[0]?.rides || 0;
+    const totalEarnings = totalStats[0]?.totalEarnings || 0;
+    const totalRides = totalStats[0]?.totalRides || 0;
+
+    // Calculate average rating (simplified - would need to get from ride ratings)
+    const averageRating = driver.rating || 5.0;
+
+    // Calculate acceptance rate (simplified - would need to track accepted vs rejected)
+    const acceptanceRate = 95; // Placeholder
+
+    // Calculate online hours (simplified - would need to track status history)
+    const onlineHoursToday = 8; // Placeholder
+
+    const stats = {
+      overview: {
+        totalRides: totalRides,
+        totalEarnings: Math.round(totalEarnings * 100) / 100,
+        averageRating: averageRating,
+        acceptanceRate: acceptanceRate,
+        status: driver.status,
+      },
+      today: {
+        rides: todayRides,
+        earnings: Math.round(todayEarnings * 100) / 100,
+        onlineHours: onlineHoursToday,
+      },
+      week: {
+        rides: weekRides,
+        earnings: Math.round(weekEarnings * 100) / 100,
+      },
+      month: {
+        rides: monthRides,
+        earnings: Math.round(monthEarnings * 100) / 100,
+      },
+      currency: "GBP",
+      lastUpdated: new Date(),
+    };
+
+    sendSuccess(res, stats, "Driver stats retrieved successfully", 200);
+  } catch (error) {
+    console.error("Get stats error:", error);
+    sendError(res, "Failed to retrieve stats", 500);
+  }
+};
+
 // Helper function to get hot zones
 async function getHotZones() {
   try {

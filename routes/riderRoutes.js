@@ -90,6 +90,13 @@ router.get(
   riderController.getPhoto
 );
 
+// Get available drivers near a location
+router.get(
+  "/available-drivers",
+  checkPermission("view_dashboard"), // Riders need dashboard permission to see available drivers
+  riderController.getAvailableDrivers
+);
+
 // Rider management - for admins with permissions
 router.get(
   "/:riderId",

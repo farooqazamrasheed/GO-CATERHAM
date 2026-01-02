@@ -644,8 +644,49 @@ exports.activateAccount = async (req, res) => {
   }
 };
 
+// Get available drivers near a location
+exports.getAvailableDrivers = async (req, res) => {
+  try {
+    const { latitude, longitude, radius } = req.query;
+
+    // Validate required parameters
+    if (!latitude || !longitude) {
+      return sendError(res, "Latitude and longitude are required", 400);
+    }
+
+    const userLat = parseFloat(latitude);
+    const userLon = parseFloat(longitude);
+    const searchRadius = radius ? parseFloat(radius) / 1000 : 12; // Convert meters to km, default 12km
+
+    if (isNaN(userLat) || isNaN(userLon)) {
+      return sendError(res, "Invalid latitude or longitude", 400);
+    }
+
+    if (isNaN(searchRadius) || searchRadius <= 0 || searchRadius > 50) {
+      return sendError(res, "Invalid radius (must be 1-50000 meters)", 400);
+    }
+
+    // Get nearby drivers
+    const nearbyDrivers = await getNearbyDrivers(
+      userLat,
+      userLon,
+      searchRadius
+    );
+
+    sendSuccess(
+      res,
+      { drivers: nearbyDrivers, count: nearbyDrivers.length },
+      "Available drivers retrieved successfully",
+      200
+    );
+  } catch (error) {
+    console.error("Get available drivers error:", error);
+    sendError(res, "Failed to retrieve available drivers", 500);
+  }
+};
+
 // Helper function to get nearby available drivers
-async function getNearbyDrivers(userLat, userLon) {
+async function getNearbyDrivers(userLat, userLon, maxDistanceKm = 12) {
   try {
     // Get all recent live locations (within last 5 minutes)
     const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
@@ -685,8 +726,8 @@ async function getNearbyDrivers(userLat, userLon) {
         location.longitude
       );
 
-      // Only include drivers within 12km
-      if (distance <= 12) {
+      // Only include drivers within specified distance
+      if (distance <= maxDistanceKm) {
         // Calculate ETA (estimated time of arrival)
         const eta = calculateETA(distance, location.speed || 30);
 
