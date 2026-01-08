@@ -18,14 +18,27 @@ const documentRoutes = require("./routes/documentRoutes");
 const rewardsRoutes = require("./routes/rewardsRoutes");
 const profileRoutes = require("./routes/profileRoutes");
 const riderLiveLocationRoutes = require("./routes/riderLiveLocationRoutes");
+const stripeRoutes = require("./routes/stripeRoutes");
 
 const app = express();
 
 // Middlewares
 app.use(cors());
+
+// Special handling for Stripe webhooks (needs raw body)
+app.use("/api/v1/stripe/webhook", express.raw({ type: "application/json" }));
+
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 app.use(morgan("dev"));
+
+// Attach raw body to request for Stripe webhooks
+app.use((req, res, next) => {
+  if (req.originalUrl === "/api/v1/stripe/webhook") {
+    req.rawBody = req.body;
+  }
+  next();
+});
 
 // Routes
 app.use("/api/v1/auth", authRoutes);
@@ -43,6 +56,7 @@ app.use("/api/v1/permissions", permissionRoutes);
 app.use("/api/v1/documents", documentRoutes);
 app.use("/api/v1/rewards", rewardsRoutes);
 app.use("/api/v1/riders/location", riderLiveLocationRoutes);
+app.use("/api/v1/stripe", stripeRoutes);
 
 // Serve uploaded files statically
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));

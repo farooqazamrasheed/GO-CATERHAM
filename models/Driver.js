@@ -148,6 +148,31 @@ const driverSchema = new mongoose.Schema(
       enum: ["active", "deactive"],
       default: "active",
     },
+    // Stripe Connect integration for driver payouts
+    stripeConnectAccountId: {
+      type: String,
+      sparse: true,
+      index: true,
+    },
+    stripeAccountStatus: {
+      type: String,
+      enum: ["pending", "enabled", "disabled", "rejected"],
+      default: "pending",
+    },
+    stripeAccountCreatedAt: Date,
+    stripeOnboardingCompleted: {
+      type: Boolean,
+      default: false,
+    },
+    // Earnings and payout tracking
+    earnings: {
+      totalEarned: { type: Number, default: 0 },
+      availableBalance: { type: Number, default: 0 },
+      pendingBalance: { type: Number, default: 0 },
+      totalPaidOut: { type: Number, default: 0 },
+      lastPayoutAt: Date,
+      currency: { type: String, default: "gbp" },
+    },
   },
   { timestamps: true }
 );

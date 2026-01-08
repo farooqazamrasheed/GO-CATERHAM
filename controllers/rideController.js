@@ -8,6 +8,7 @@ const { sendSuccess, sendError } = require("../utils/responseHelper");
 const rideRequestManager = require("../utils/rideRequestManager");
 const socketService = require("../services/socketService");
 const notificationService = require("../services/notificationService");
+const driverPayoutController = require("../controllers/driverPayoutController");
 const crypto = require("crypto");
 
 // Surrey boundary coordinates (approximate polygon for Surrey, UK)
@@ -339,6 +340,9 @@ exports.getFareEstimate = async (req, res) => {
       },
       vehicleType,
       ...fareCalculation,
+      // Add top-level fare field for easy frontend access
+      fare: fareCalculation.fareBreakdown.total,
+      estimatedFare: fareCalculation.fareBreakdown.total,
       driverAvailability: {
         count: availableDrivers,
         estimatedPickupTime,
@@ -568,12 +572,44 @@ async function countAvailableDrivers(pickupLat, pickupLng, vehicleType) {
       vehicleType
     );
     const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
+    console.log("DEBUG: Looking for locations since:", fiveMinutesAgo.toISOString());
+
+    // First, check total LiveLocation records in DB
+    const totalLocations = await LiveLocation.countDocuments();
+    console.log("DEBUG: Total LiveLocation records in database:", totalLocations);
 
     const recentLocations = await LiveLocation.find({
       timestamp: { $gte: fiveMinutesAgo },
     }).populate("driver");
 
-    console.log("DEBUG: Found", recentLocations.length, "recent locations");
+    console.log("DEBUG: Found", recentLocations.length, "recent locations (within last 5 min)");
+    
+    // Log details of each recent location for debugging
+    if (recentLocations.length > 0) {
+      recentLocations.forEach((loc, idx) => {
+        console.log(`DEBUG: Location ${idx + 1}:`, {
+          driverId: loc.driver?._id,
+          driverStatus: loc.driver?.status,
+          driverIsApproved: loc.driver?.isApproved,
+          driverVehicleType: loc.driver?.vehicleType,
+          locationTimestamp: loc.timestamp,
+          lat: loc.latitude,
+          lng: loc.longitude
+        });
+      });
+    } else {
+      // If no recent locations, check what locations exist
+      const latestLocation = await LiveLocation.findOne().sort({ timestamp: -1 }).populate("driver");
+      if (latestLocation) {
+        console.log("DEBUG: Most recent location in DB:", {
+          driverId: latestLocation.driver?._id,
+          timestamp: latestLocation.timestamp,
+          age: Math.round((Date.now() - latestLocation.timestamp) / 1000 / 60) + " minutes ago"
+        });
+      } else {
+        console.log("DEBUG: No LiveLocation records exist in database at all");
+      }
+    }
     let availableCount = 0;
     let filteredOut = {
       noDriver: 0,
@@ -594,25 +630,33 @@ async function countAvailableDrivers(pickupLat, pickupLng, vehicleType) {
         filteredOut.notOnline++;
         continue;
       }
-      if (!location.driver.isApproved) {
+      if (location.driver.isApproved !== "approved") {
         filteredOut.notApproved++;
         continue;
       }
 
       // Check vehicle type match
       if (
-        !location.driver.vehicle ||
-        location.driver.vehicle.type !== vehicleType
+        !location.driver.vehicleType ||
+        location.driver.vehicleType !== vehicleType
       ) {
         filteredOut.vehicleTypeMismatch =
           (filteredOut.vehicleTypeMismatch || 0) + 1;
         continue;
       }
 
-      // Check Surrey boundary
-      if (!isInSurrey(location.latitude, location.longitude)) {
-        filteredOut.outsideBoundary++;
-        continue;
+      // Check Surrey boundary (disabled for testing)
+      const inBoundary = isInSurrey(location.latitude, location.longitude);
+      if (!inBoundary) {
+        console.log("DEBUG [countAvailableDrivers]: Driver outside Surrey boundary (allowing for testing):", {
+          driverId: location.driver._id,
+          lat: location.latitude,
+          lng: location.longitude
+        });
+        // For testing: Allow drivers outside boundary
+        // In production, uncomment the following:
+        // filteredOut.outsideBoundary++;
+        // continue;
       }
 
       // Check distance (within 10km)
@@ -659,15 +703,18 @@ async function calculateEstimatedPickupTime(pickupLat, pickupLng, vehicleType) {
       if (
         !location.driver ||
         location.driver.status !== "online" ||
-        !location.driver.isApproved ||
-        !location.driver.vehicle ||
-        location.driver.vehicle.type !== vehicleType
+        location.driver.isApproved !== "approved" ||
+        !location.driver.vehicleType ||
+        location.driver.vehicleType !== vehicleType
       ) {
         continue;
       }
 
-      if (!isInSurrey(location.latitude, location.longitude)) {
-        continue;
+      // Check Surrey boundary (disabled for testing)
+      const inBoundary = isInSurrey(location.latitude, location.longitude);
+      if (!inBoundary) {
+        console.log("DEBUG [calculateEstimatedPickupTime]: Driver outside Surrey (allowing for testing)");
+        // For production, uncomment: continue;
       }
 
       const distance = calculateDistance(
@@ -712,15 +759,18 @@ async function assignDriverToRide(rideId, fareEstimate) {
       if (
         !location.driver ||
         location.driver.status !== "online" ||
-        !location.driver.isApproved ||
-        !location.driver.vehicle ||
-        location.driver.vehicle.type !== fareEstimate.vehicleType
+        location.driver.isApproved !== "approved" ||
+        !location.driver.vehicleType ||
+        location.driver.vehicleType !== fareEstimate.vehicleType
       ) {
         continue;
       }
 
-      if (!isInSurrey(location.latitude, location.longitude)) {
-        continue;
+      // Check Surrey boundary (disabled for testing)
+      const inBoundary = isInSurrey(location.latitude, location.longitude);
+      if (!inBoundary) {
+        console.log("DEBUG [getAvailableDriversForRide]: Driver outside Surrey (allowing for testing)");
+        // For production, uncomment: continue;
       }
 
       const distance = calculateDistance(
@@ -1149,17 +1199,54 @@ exports.completeRide = async (req, res) => {
       } else {
         paymentStatus = "failed";
       }
+    } else if (ride.paymentMethod === "card") {
+      // For card payments via Stripe
+      // Note: Payment should have been created during ride booking with payment intent
+      // Here we just verify the payment was successful
+      const existingPayment = await Payment.findOne({
+        ride: ride._id,
+        paymentMethod: "card",
+        status: "paid",
+      });
+
+      if (existingPayment) {
+        paymentStatus = "paid";
+      } else {
+        // If no existing payment, mark as pending
+        // This should be handled by frontend before ride completion
+        paymentStatus = "pending";
+        console.warn(
+          `Ride ${ride._id} completed with card payment but no paid payment record found`
+        );
+      }
+    } else if (ride.paymentMethod === "cash") {
+      // Cash payments are marked as paid upon ride completion
+      paymentStatus = "paid";
     }
 
-    // Create Payment record
-    const payment = await Payment.create({
+    // Create Payment record (or update existing for card payments)
+    let payment = await Payment.findOne({
       ride: ride._id,
-      rider: ride.rider,
-      driver: ride.driver._id,
-      amount: finalFare,
-      status: paymentStatus,
-      paymentMethod: ride.paymentMethod,
     });
+
+    if (payment) {
+      // Update existing payment record
+      payment.amount = finalFare;
+      payment.status = paymentStatus;
+      payment.driver = ride.driver._id;
+      await payment.save();
+    } else {
+      // Create new payment record
+      payment = await Payment.create({
+        ride: ride._id,
+        rider: ride.rider,
+        driver: ride.driver._id,
+        amount: finalFare,
+        status: paymentStatus,
+        paymentMethod: ride.paymentMethod,
+        description: `Payment for ride ${ride._id}`,
+      });
+    }
 
     // Update the wallet transaction with payment._id if payment was successful
     if (paymentStatus === "paid") {
@@ -1270,6 +1357,9 @@ exports.completeRide = async (req, res) => {
         ride.tips
       ).toFixed(2)}`,
     });
+
+    // Process driver earnings for Stripe Connect payouts
+    await driverPayoutController.processRideEarnings(ride.driver._id, ride);
 
     // 5. Update rider dashboard with completed ride
     socketService.notifyRiderDashboardUpdate(

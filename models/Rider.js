@@ -61,6 +61,13 @@ const riderSchema = new mongoose.Schema(
       default: "active",
     },
     isDeactivated: { type: Boolean, default: false },
+    // Stripe integration fields
+    stripeCustomerId: {
+      type: String,
+      sparse: true,
+      index: true,
+    },
+    stripeCustomerCreatedAt: Date,
   },
   { timestamps: true }
 );

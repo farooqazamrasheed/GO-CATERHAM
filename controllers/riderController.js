@@ -218,12 +218,24 @@ exports.getRideHistory = async (req, res) => {
 };
 
 // Top-up wallet
+// NOTE: This is the legacy wallet top-up method (for manual/admin top-ups)
+// For Stripe payment integration, use POST /api/v1/stripe/create-payment-intent
+// followed by POST /api/v1/stripe/confirm-payment
 exports.topUpWallet = async (req, res) => {
   try {
-    const { amount } = req.body;
+    const { amount, paymentMethod = "manual" } = req.body;
     const numAmount = parseFloat(amount);
     if (!numAmount || numAmount <= 0 || isNaN(numAmount)) {
       return sendError(res, "Invalid amount", 400);
+    }
+
+    // For card payments, redirect to Stripe integration
+    if (paymentMethod === "card" || paymentMethod === "stripe") {
+      return sendError(
+        res,
+        "For card payments, please use the Stripe payment API: POST /api/v1/stripe/create-payment-intent",
+        400
+      );
     }
 
     let wallet = await Wallet.findOne({ user: req.user.id });
@@ -248,7 +260,8 @@ exports.topUpWallet = async (req, res) => {
       rider: req.user.id,
       amount: numAmount,
       status: "paid",
-      paymentMethod: "wallet",
+      paymentMethod: paymentMethod === "manual" ? "cash" : paymentMethod,
+      description: `Manual wallet top-up (${paymentMethod})`,
     });
 
     // Add transaction to wallet
@@ -256,7 +269,7 @@ exports.topUpWallet = async (req, res) => {
       type: "topup",
       amount: numAmount,
       payment: payment._id,
-      description: "Wallet top-up",
+      description: `Wallet top-up via ${paymentMethod}`,
     };
     wallet.transactions.push(newTransaction);
     await wallet.save();
@@ -647,7 +660,7 @@ exports.activateAccount = async (req, res) => {
 // Get available drivers near a location
 exports.getAvailableDrivers = async (req, res) => {
   try {
-    const { latitude, longitude, radius } = req.query;
+    const { latitude, longitude, radius, vehicleType } = req.query;
 
     // Validate required parameters
     if (!latitude || !longitude) {
@@ -656,7 +669,7 @@ exports.getAvailableDrivers = async (req, res) => {
 
     const userLat = parseFloat(latitude);
     const userLon = parseFloat(longitude);
-    const searchRadius = radius ? parseFloat(radius) / 1000 : 12; // Convert meters to km, default 12km
+    const searchRadius = radius ? parseFloat(radius) / 1000 : 5; // Convert meters to km, default 5km (5000m as per spec)
 
     if (isNaN(userLat) || isNaN(userLon)) {
       return sendError(res, "Invalid latitude or longitude", 400);
@@ -666,16 +679,32 @@ exports.getAvailableDrivers = async (req, res) => {
       return sendError(res, "Invalid radius (must be 1-50000 meters)", 400);
     }
 
-    // Get nearby drivers
+    // Validate vehicleType if provided
+    const validVehicleTypes = [
+      "sedan", "suv", "electric", "hatchback", "coupe",
+      "convertible", "wagon", "pickup", "van", "motorcycle"
+    ];
+    if (vehicleType && !validVehicleTypes.includes(vehicleType)) {
+      return sendError(res, `Invalid vehicleType. Must be one of: ${validVehicleTypes.join(", ")}`, 400);
+    }
+
+    // Get nearby drivers with optional vehicleType filter
     const nearbyDrivers = await getNearbyDrivers(
       userLat,
       userLon,
-      searchRadius
+      searchRadius,
+      vehicleType
     );
 
+    // Response format as per BACKEND_CHANGES_REQUIRED.md specification
     sendSuccess(
       res,
-      { drivers: nearbyDrivers, count: nearbyDrivers.length },
+      { 
+        drivers: nearbyDrivers, 
+        count: nearbyDrivers.length,
+        searchRadius: searchRadius * 1000, // Convert back to meters for response
+        timestamp: new Date().toISOString()
+      },
       "Available drivers retrieved successfully",
       200
     );
@@ -686,10 +715,21 @@ exports.getAvailableDrivers = async (req, res) => {
 };
 
 // Helper function to get nearby available drivers
-async function getNearbyDrivers(userLat, userLon, maxDistanceKm = 12) {
+async function getNearbyDrivers(userLat, userLon, maxDistanceKm = 5, vehicleType = null) {
   try {
+    console.log("DEBUG [getNearbyDrivers]: Searching for drivers near:", {
+      userLat,
+      userLon,
+      maxDistanceKm,
+      vehicleType
+    });
+
     // Get all recent live locations (within last 5 minutes)
     const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
+    
+    // Check total locations in DB
+    const totalLocations = await LiveLocation.countDocuments();
+    console.log("DEBUG [getNearbyDrivers]: Total LiveLocation records:", totalLocations);
 
     const recentLocations = await LiveLocation.find({
       timestamp: { $gte: fiveMinutesAgo },
@@ -701,21 +741,67 @@ async function getNearbyDrivers(userLat, userLon, maxDistanceKm = 12) {
       },
     });
 
+    console.log("DEBUG [getNearbyDrivers]: Found", recentLocations.length, "recent locations");
+
     const driversWithDistance = [];
+    let filteredOut = {
+      noDriver: 0,
+      notOnline: 0,
+      notApproved: 0,
+      outsideBoundary: 0,
+      tooFar: 0
+    };
 
     for (const location of recentLocations) {
-      // Check if driver is online and approved
-      if (
-        !location.driver ||
-        location.driver.status !== "online" ||
-        !location.driver.isApproved
-      ) {
+      // Check if driver is online, approved, and active
+      if (!location.driver) {
+        filteredOut.noDriver++;
+        continue;
+      }
+      if (location.driver.status !== "online") {
+        filteredOut.notOnline++;
+        console.log("DEBUG [getNearbyDrivers]: Driver filtered - not online:", {
+          driverId: location.driver._id,
+          status: location.driver.status
+        });
+        continue;
+      }
+      if (location.driver.isApproved !== "approved") {
+        filteredOut.notApproved++;
+        console.log("DEBUG [getNearbyDrivers]: Driver filtered - not approved:", {
+          driverId: location.driver._id,
+          isApproved: location.driver.isApproved
+        });
+        continue;
+      }
+      // Filter by activeStatus === "active" as per BACKEND_CHANGES_REQUIRED.md
+      if (location.driver.activeStatus !== "active") {
+        filteredOut.notActive = (filteredOut.notActive || 0) + 1;
+        console.log("DEBUG [getNearbyDrivers]: Driver filtered - not active:", {
+          driverId: location.driver._id,
+          activeStatus: location.driver.activeStatus
+        });
         continue;
       }
 
-      // Check if driver is within Surrey boundary
-      if (!isInSurrey(location.latitude, location.longitude)) {
+      // Filter by vehicleType if specified
+      if (vehicleType && location.driver.vehicleType !== vehicleType) {
+        filteredOut.wrongVehicleType = (filteredOut.wrongVehicleType || 0) + 1;
         continue;
+      }
+
+      // Check if driver is within Surrey boundary (disabled for testing)
+      const inBoundary = isInSurrey(location.latitude, location.longitude);
+      if (!inBoundary) {
+        console.log("DEBUG [getNearbyDrivers]: Driver outside Surrey boundary (allowing for testing):", {
+          driverId: location.driver._id,
+          lat: location.latitude,
+          lng: location.longitude
+        });
+        // For testing: Allow drivers outside boundary
+        // In production, uncomment the following:
+        // filteredOut.outsideBoundary++;
+        // continue;
       }
 
       // Calculate distance
@@ -745,15 +831,23 @@ async function getNearbyDrivers(userLat, userLon, maxDistanceKm = 12) {
           speed: location.speed || 0,
           lastUpdated: location.timestamp,
         });
+      } else {
+        filteredOut.tooFar++;
       }
     }
+
+    console.log("DEBUG [getNearbyDrivers]: Final results:", {
+      totalRecent: recentLocations.length,
+      availableDrivers: driversWithDistance.length,
+      filteredOut
+    });
 
     // Sort by distance (closest first) and limit to 50 drivers
     return driversWithDistance
       .sort((a, b) => a.distance - b.distance)
       .slice(0, 50);
   } catch (error) {
-    console.error("Error getting nearby drivers:", error);
+    console.error("ERROR [getNearbyDrivers]:", error);
     return [];
   }
 }

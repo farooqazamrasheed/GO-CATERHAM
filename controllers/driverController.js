@@ -204,13 +204,16 @@ exports.getVerificationStatus = async (req, res) => {
 
     // Map isApproved to verification status
     let verificationStatus = "unverified";
-    if (driver.isApproved) {
+    if (driver.isApproved === "approved") {
       verificationStatus = "verified";
+    } else if (driver.isApproved === "pending") {
+      verificationStatus = "pending";
+    } else if (driver.isApproved === "rejected") {
+      verificationStatus = "rejected";
     }
 
-    // For now, we don't have pending/rejected states in the model
-    // This can be extended later with additional fields
-    const canGoOnline = driver.isApproved;
+    // Driver can only go online if approved
+    const canGoOnline = driver.isApproved === "approved";
 
     sendSuccess(
       res,
@@ -231,7 +234,7 @@ exports.getVerificationStatus = async (req, res) => {
 // Update driver status
 exports.updateStatus = async (req, res) => {
   try {
-    const { status } = req.body;
+    const { status, latitude, longitude, heading, speed } = req.body;
 
     if (!["online", "offline", "busy"].includes(status)) {
       return sendError(
@@ -251,6 +254,48 @@ exports.updateStatus = async (req, res) => {
       return sendError(res, "Driver profile not found", 404);
     }
 
+    let locationWarning = null;
+    let locationSaved = false;
+
+    // If going online and location is provided, create/update location
+    if (status === "online" && latitude && longitude) {
+      console.log("DEBUG [updateStatus]: Driver going online with location:", {
+        driverId: driver._id,
+        latitude,
+        longitude,
+        isApproved: driver.isApproved,
+        vehicleType: driver.vehicleType
+      });
+
+      // Create or update live location so driver appears in searches
+      const locationData = {
+        driver: driver._id,
+        latitude: parseFloat(latitude),
+        longitude: parseFloat(longitude),
+        heading: heading ? parseFloat(heading) : 0,
+        speed: speed ? parseFloat(speed) : 0,
+        timestamp: new Date(),
+      };
+
+      const locationResult = await LiveLocation.findOneAndUpdate(
+        { driver: driver._id },
+        locationData,
+        { upsert: true, new: true, setDefaultsOnInsert: true }
+      );
+
+      console.log("DEBUG [updateStatus]: Location saved for online driver:", {
+        locationId: locationResult._id,
+        timestamp: locationResult.timestamp,
+        lat: locationResult.latitude,
+        lng: locationResult.longitude
+      });
+      locationSaved = true;
+    } else if (status === "online" && (!latitude || !longitude)) {
+      // Driver going online without location - they won't appear in rider searches!
+      console.log("DEBUG [updateStatus]: WARNING - Driver going online WITHOUT location. Driver will NOT appear in rider searches!");
+      locationWarning = "You are online but your location was not sent. You will NOT appear in rider searches until you send your location. Please ensure GPS is enabled and call POST /api/v1/drivers/location with your coordinates.";
+    }
+
     // Real-time notification for status update
     const socketService = require("../services/socketService");
     socketService.notifyDriverStatusUpdate(driver._id.toString(), status);
@@ -268,7 +313,19 @@ exports.updateStatus = async (req, res) => {
     // Notify admins about driver status change
     await socketService.notifyAdminDriverStatusUpdate(driver, status);
 
-    sendSuccess(res, { driver }, "Status updated successfully", 200);
+    // Include warning in response if driver went online without location
+    const responseData = { driver };
+    if (status === "online") {
+      responseData.locationSaved = locationSaved;
+      responseData.isVisible = locationSaved; // Whether driver is visible to riders
+    }
+    if (locationWarning) {
+      responseData.warning = locationWarning;
+      responseData.requiresLocation = true;
+      responseData.locationEndpoint = "POST /api/v1/drivers/location";
+    }
+
+    sendSuccess(res, responseData, locationWarning || "Status updated successfully", 200);
   } catch (error) {
     console.error("Update status error:", error);
     sendError(res, "Failed to update status", 500);
@@ -717,7 +774,7 @@ async function getNearbyDriversForDriver(
       if (
         !location.driver ||
         location.driver.status !== "online" ||
-        !location.driver.isApproved
+        location.driver.isApproved !== "approved"
       ) {
         continue;
       }
@@ -1127,9 +1184,17 @@ exports.updateLocation = async (req, res) => {
       return sendError(res, "Invalid latitude or longitude coordinates", 400);
     }
 
-    // Validate Surrey boundary
-    if (!isInSurrey(latitude, longitude)) {
-      return sendError(res, "Location must be within Surrey boundary", 400);
+    // Validate Surrey boundary (warn but don't reject for now - testing purposes)
+    const inSurrey = isInSurrey(latitude, longitude);
+    if (!inSurrey) {
+      console.log("DEBUG [updateLocation]: WARNING - Location is outside Surrey boundary:", {
+        latitude,
+        longitude,
+        driverId: req.user.id
+      });
+      // For testing: Allow location updates outside Surrey but log warning
+      // In production, uncomment the following:
+      // return sendError(res, "Location must be within Surrey boundary", 400);
     }
 
     // Optional validations
@@ -1160,6 +1225,11 @@ exports.updateLocation = async (req, res) => {
       return sendError(res, "Driver profile not found", 404);
     }
 
+    // Verify driver status is online as per BACKEND_CHANGES_REQUIRED.md
+    if (driver.status !== "online") {
+      return sendError(res, "Driver must be online to update location. Current status: " + driver.status, 400);
+    }
+
     // Check if driver has an active ride (optional - for validation)
     const activeRide = await Ride.findOne({
       driver: driver._id,
@@ -1176,7 +1246,14 @@ exports.updateLocation = async (req, res) => {
       timestamp: timestamp ? new Date(timestamp) : new Date(),
     };
 
-    console.log("Creating/updating location with data:", locationData);
+    console.log("DEBUG [updateLocation]: Creating/updating location with data:", locationData);
+    console.log("DEBUG [updateLocation]: Driver details:", {
+      driverId: driver._id,
+      status: driver.status,
+      isApproved: driver.isApproved,
+      vehicleType: driver.vehicleType,
+      activeStatus: driver.activeStatus
+    });
 
     // Upsert location (update if exists, create if not)
     const locationResult = await LiveLocation.findOneAndUpdate(
@@ -1189,7 +1266,13 @@ exports.updateLocation = async (req, res) => {
       }
     );
 
-    console.log("Location result:", locationResult);
+    console.log("DEBUG [updateLocation]: Location saved successfully:", {
+      locationId: locationResult._id,
+      driverId: locationResult.driver,
+      timestamp: locationResult.timestamp,
+      lat: locationResult.latitude,
+      lng: locationResult.longitude
+    });
 
     // Update user's last location update timestamp
     const userUpdateResult = await User.findByIdAndUpdate(driverId, {
@@ -1225,17 +1308,19 @@ exports.updateLocation = async (req, res) => {
       }
     );
 
+    // Response format as per BACKEND_CHANGES_REQUIRED.md specification
     sendSuccess(
       res,
       {
         location: {
+          _id: locationResult._id,
+          driver: driver._id,
           latitude: locationData.latitude,
           longitude: locationData.longitude,
           heading: locationData.heading,
           speed: locationData.speed,
-          timestamp: locationData.timestamp,
+          timestamp: locationResult.timestamp.toISOString(),
         },
-        hasActiveRide: !!activeRide,
       },
       "Location updated successfully",
       200

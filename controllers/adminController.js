@@ -16,6 +16,7 @@ const { auditLoggers } = require("../middlewares/audit");
 const { driverPhotoUpload } = require("../config/multerConfig");
 const bcrypt = require("bcryptjs");
 const notificationService = require("../services/notificationService");
+const socketService = require("../services/socketService");
 
 // Approve or reject driver
 exports.approveDriver = async (req, res, next) => {
@@ -99,6 +100,34 @@ exports.approveDriver = async (req, res, next) => {
       // Continue without failing the approval
     }
 
+    // Real-time WebSocket notifications for driver approval
+    
+    // 1. Notify driver about approval
+    socketService.notifyUser(driver.user.toString(), "driver_approved", {
+      driverId: driver._id,
+      status: "approved",
+      message: "Congratulations! Your driver account has been approved. You can now go online and start accepting rides.",
+      canGoOnline: true,
+      timestamp: new Date()
+    });
+
+    // 2. Update driver dashboard
+    socketService.notifyDriverDashboardUpdate(driver._id.toString(), {
+      verificationStatus: "verified",
+      isApproved: "approved",
+      canGoOnline: true,
+      message: "Your account has been approved!"
+    }, "approval_status");
+
+    // 3. Notify all admins about driver approval
+    socketService.notifyUser("admin", "admin_driver_approved", {
+      driverId: driver._id,
+      driverName: user.fullName,
+      approvedBy: req.user.fullName || req.user.id,
+      timestamp: new Date(),
+      message: `Driver ${user.fullName} has been approved`
+    });
+
     sendSuccess(res, { driver }, "Driver approved", 200);
   } catch (err) {
     next(err);
@@ -169,6 +198,41 @@ exports.rejectDriver = async (req, res, next) => {
 
     await driver.save();
 
+    // Get user for notifications
+    const user = await User.findById(driver.user);
+
+    // Real-time WebSocket notifications for driver rejection
+    
+    // 1. Notify driver about rejection
+    socketService.notifyUser(driver.user.toString(), "driver_rejected", {
+      driverId: driver._id,
+      status: "rejected",
+      rejectionMessage: rejectionMessage,
+      canReapply: true,
+      timestamp: new Date(),
+      message: rejectionMessage
+    });
+
+    // 2. Update driver dashboard with rejection status
+    socketService.notifyDriverDashboardUpdate(driver._id.toString(), {
+      verificationStatus: "unverified",
+      isApproved: "rejected",
+      canGoOnline: false,
+      rejectionMessage: rejectionMessage,
+      message: "Your application has been rejected. Please check the rejection reason and reapply."
+    }, "approval_status");
+
+    // 3. Notify all admins about driver rejection
+    socketService.notifyUser("admin", "admin_driver_rejected", {
+      driverId: driver._id,
+      driverName: user?.fullName || "Unknown",
+      rejectedBy: req.user.fullName || req.user.id,
+      rejectionMessage: rejectionMessage,
+      rejectionCount: driver.rejectionCount,
+      timestamp: new Date(),
+      message: `Driver ${user?.fullName || "Unknown"} has been rejected`
+    });
+
     sendSuccess(
       res,
       {
@@ -215,6 +279,39 @@ exports.rejectDriverCustom = async (req, res, next) => {
     driver.rejectedBy = req.user.id;
 
     await driver.save();
+
+    // Get user for notifications
+    const user = await User.findById(driver.user);
+
+    // Real-time WebSocket notifications for custom rejection
+    
+    // 1. Notify driver about rejection
+    socketService.notifyUser(driver.user.toString(), "driver_rejected", {
+      driverId: driver._id,
+      status: "rejected",
+      rejectionMessage: rejectionMessage,
+      canReapply: true,
+      timestamp: new Date(),
+      message: rejectionMessage
+    });
+
+    // 2. Update driver dashboard
+    socketService.notifyDriverDashboardUpdate(driver._id.toString(), {
+      verificationStatus: "unverified",
+      isApproved: "rejected",
+      canGoOnline: false,
+      rejectionMessage: rejectionMessage
+    }, "approval_status");
+
+    // 3. Notify all admins
+    socketService.notifyUser("admin", "admin_driver_rejected", {
+      driverId: driver._id,
+      driverName: user?.fullName || "Unknown",
+      rejectedBy: req.user.fullName || req.user.id,
+      rejectionMessage: rejectionMessage,
+      rejectionCount: driver.rejectionCount,
+      timestamp: new Date()
+    });
 
     sendSuccess(
       res,
@@ -278,6 +375,59 @@ exports.verifyDocument = async (req, res, next) => {
     driver.documents[documentType].verifiedBy = req.user.id;
 
     await driver.save();
+
+    // Check how many documents are now verified
+    const requiredDocuments = [
+      "drivingLicenseFront",
+      "drivingLicenseBack",
+      "cnicFront",
+      "cnicBack",
+      "vehicleRegistration",
+      "insuranceCertificate",
+      "vehiclePhotoFront",
+      "vehiclePhotoSide",
+    ];
+    const verifiedCount = requiredDocuments.filter(
+      (doc) => driver.documents && driver.documents[doc] && driver.documents[doc].verified
+    ).length;
+    const allVerified = verifiedCount === requiredDocuments.length;
+
+    // Real-time WebSocket notifications for document verification
+    
+    // 1. Notify driver about document verification
+    socketService.notifyUser(driver.user.toString(), "document_verified", {
+      driverId: driver._id,
+      documentType: documentType,
+      verifiedCount: verifiedCount,
+      totalRequired: requiredDocuments.length,
+      allVerified: allVerified,
+      message: allVerified 
+        ? "All documents verified! Your account is ready for approval."
+        : `Document "${documentType}" has been verified. ${verifiedCount}/${requiredDocuments.length} documents verified.`,
+      timestamp: new Date()
+    });
+
+    // 2. Update driver dashboard with verification progress
+    socketService.notifyDriverDashboardUpdate(driver._id.toString(), {
+      documentVerification: {
+        documentType: documentType,
+        verified: true,
+        verifiedCount: verifiedCount,
+        totalRequired: requiredDocuments.length,
+        allVerified: allVerified
+      }
+    }, "document_verified");
+
+    // 3. Notify admins about document verification
+    socketService.notifyUser("admin", "admin_document_verified", {
+      driverId: driver._id,
+      documentType: documentType,
+      verifiedBy: req.user.fullName || req.user.id,
+      verifiedCount: verifiedCount,
+      totalRequired: requiredDocuments.length,
+      allVerified: allVerified,
+      timestamp: new Date()
+    });
 
     sendSuccess(
       res,
@@ -1318,21 +1468,22 @@ exports.getDrivers = async (req, res) => {
 
     const totalPages = Math.ceil(total / limit);
 
-    sendSuccess(
-      res,
-      {
-        drivers,
-        pagination: {
-          currentPage: page,
-          totalPages,
-          totalDrivers: total,
-          hasNext: page < totalPages,
-          hasPrev: page > 1,
-        },
+    // Return response in format expected by frontend
+    res.status(200).json({
+      success: true,
+      message: "Drivers retrieved successfully",
+      data: drivers,
+      drivers: drivers,  // Include both for backward compatibility
+      count: drivers.length,
+      total: total,
+      pagination: {
+        currentPage: page,
+        totalPages,
+        totalDrivers: total,
+        hasNext: page < totalPages,
+        hasPrev: page > 1,
       },
-      "Drivers retrieved successfully",
-      200
-    );
+    });
   } catch (err) {
     console.error("Get drivers error:", err);
     sendError(res, "Failed to retrieve drivers", 500);
@@ -2525,6 +2676,26 @@ exports.activateDriverAccount = async (req, res) => {
       });
     }
 
+    // Real-time WebSocket notifications for driver activation
+    socketService.notifyUser(driver.user.toString(), "account_activated", {
+      userType: "driver",
+      driverId: driver._id,
+      activeStatus: "active",
+      message: "Your driver account has been activated.",
+      timestamp: new Date()
+    });
+
+    socketService.notifyDriverDashboardUpdate(driver._id.toString(), {
+      activeStatus: "active",
+      message: "Your account has been activated!"
+    }, "account_status");
+
+    socketService.notifyUser("admin", "admin_driver_activated", {
+      driverId: driver._id,
+      activatedBy: req.user.fullName || req.user.id,
+      timestamp: new Date()
+    });
+
     sendSuccess(
       res,
       { timestamp: new Date() },
@@ -2580,6 +2751,27 @@ exports.deactivateDriverAccount = async (req, res) => {
       });
     }
 
+    // Real-time WebSocket notifications for driver deactivation
+    socketService.notifyUser(driver.user.toString(), "account_deactivated", {
+      userType: "driver",
+      driverId: driver._id,
+      activeStatus: "inactive",
+      message: "Your driver account has been deactivated. Please contact support for more information.",
+      timestamp: new Date()
+    });
+
+    socketService.notifyDriverDashboardUpdate(driver._id.toString(), {
+      activeStatus: "inactive",
+      status: "offline",
+      message: "Your account has been deactivated."
+    }, "account_status");
+
+    socketService.notifyUser("admin", "admin_driver_deactivated", {
+      driverId: driver._id,
+      deactivatedBy: req.user.fullName || req.user.id,
+      timestamp: new Date()
+    });
+
     sendSuccess(
       res,
       { timestamp: new Date() },
@@ -2632,6 +2824,26 @@ exports.activateRiderAccount = async (req, res) => {
         performedBy: userId,
       });
     }
+
+    // Real-time WebSocket notifications for rider activation
+    socketService.notifyUser(rider.user.toString(), "account_activated", {
+      userType: "rider",
+      riderId: rider._id,
+      activeStatus: "active",
+      message: "Your rider account has been activated.",
+      timestamp: new Date()
+    });
+
+    socketService.notifyDashboard(rider._id.toString(), "account_status", {
+      activeStatus: "active",
+      message: "Your account has been activated!"
+    });
+
+    socketService.notifyUser("admin", "admin_rider_activated", {
+      riderId: rider._id,
+      activatedBy: req.user.fullName || req.user.id,
+      timestamp: new Date()
+    });
 
     sendSuccess(
       res,
@@ -2688,6 +2900,26 @@ exports.deactivateRiderAccount = async (req, res) => {
         reason: reason,
       });
     }
+
+    // Real-time WebSocket notifications for rider deactivation
+    socketService.notifyUser(rider.user.toString(), "account_deactivated", {
+      userType: "rider",
+      riderId: rider._id,
+      activeStatus: "inactive",
+      message: "Your rider account has been deactivated. Please contact support for more information.",
+      timestamp: new Date()
+    });
+
+    socketService.notifyDashboard(rider._id.toString(), "account_status", {
+      activeStatus: "inactive",
+      message: "Your account has been deactivated."
+    });
+
+    socketService.notifyUser("admin", "admin_rider_deactivated", {
+      riderId: rider._id,
+      deactivatedBy: req.user.fullName || req.user.id,
+      timestamp: new Date()
+    });
 
     sendSuccess(
       res,

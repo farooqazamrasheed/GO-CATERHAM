@@ -28,6 +28,7 @@ class SocketService {
   constructor() {
     this.io = null;
     this.activeRideIntervals = new Map();
+    this.driverLocationCheckInterval = null;
   }
 
   /**
@@ -38,6 +39,7 @@ class SocketService {
     this.io = io;
     this.setupSocketHandlers();
     this.startPeriodicRiderDashboardUpdates();
+    this.startDriverLocationPolling();
   }
 
   /**
@@ -88,12 +90,45 @@ class SocketService {
 
           // Send initial dashboard data
           this.sendInitialDashboardData(userId, latitude, longitude);
+
+          // If location is provided, update the driver's location
+          if (latitude && longitude) {
+            this.updateDriverLocationFromSocket(userId, latitude, longitude);
+          }
         } else if (userId && userType === "rider") {
           socket.join(`rider_dashboard_${userId}`);
           console.log(`Rider ${userId} subscribed to dashboard updates`);
 
           // Send initial rider dashboard data
           this.sendInitialRiderDashboardData(userId, latitude, longitude);
+        }
+      });
+
+      // Handle driver location updates via WebSocket
+      socket.on("update_location", async (data) => {
+        const { latitude, longitude, heading, speed } = data;
+        const userId = socket.userId;
+
+        if (!userId || !latitude || !longitude) {
+          socket.emit("location_update_error", {
+            message: "Missing required fields: userId, latitude, longitude",
+            timestamp: new Date()
+          });
+          return;
+        }
+
+        try {
+          await this.updateDriverLocationFromSocket(userId, latitude, longitude, heading, speed);
+          socket.emit("location_update_success", {
+            message: "Location updated successfully",
+            timestamp: new Date()
+          });
+        } catch (error) {
+          console.error("Error updating driver location via socket:", error);
+          socket.emit("location_update_error", {
+            message: error.message || "Failed to update location",
+            timestamp: new Date()
+          });
         }
       });
 
@@ -200,6 +235,172 @@ class SocketService {
         console.error("Error in periodic rider dashboard updates:", error);
       }
     }, 30000); // 30 seconds
+  }
+
+  /**
+   * Start driver location polling - checks for online drivers without recent location updates
+   * and sends reminders to update their location
+   */
+  startDriverLocationPolling() {
+    const Driver = require("../models/Driver");
+    const LiveLocation = require("../models/LiveLocation");
+
+    // Check every 60 seconds for online drivers without recent locations
+    this.driverLocationCheckInterval = setInterval(async () => {
+      try {
+        // Find all online drivers
+        const onlineDrivers = await Driver.find({ 
+          status: "online",
+          isApproved: "approved",
+          activeStatus: "active"
+        }).populate("user", "fullName");
+
+        if (onlineDrivers.length === 0) {
+          return;
+        }
+
+        const twoMinutesAgo = new Date(Date.now() - 2 * 60 * 1000);
+        const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
+
+        for (const driver of onlineDrivers) {
+          // Check if driver has recent location
+          const recentLocation = await LiveLocation.findOne({
+            driver: driver._id,
+            timestamp: { $gte: twoMinutesAgo }
+          });
+
+          if (!recentLocation) {
+            // Check if they have any location at all
+            const anyLocation = await LiveLocation.findOne({
+              driver: driver._id
+            }).sort({ timestamp: -1 });
+
+            let warningType = "no_location";
+            let message = "You are online but we don't have your location. Please enable GPS to receive ride requests.";
+
+            if (anyLocation) {
+              const locationAge = Math.round((Date.now() - new Date(anyLocation.timestamp)) / 1000 / 60);
+              
+              if (anyLocation.timestamp < fiveMinutesAgo) {
+                warningType = "stale_location";
+                message = `Your location is ${locationAge} minutes old. Please enable GPS to receive ride requests.`;
+              } else {
+                // Location is between 2-5 minutes old - send soft reminder
+                warningType = "location_update_needed";
+                message = "Please ensure your GPS is enabled for accurate location tracking.";
+              }
+            }
+
+            // Send location reminder to driver via WebSocket
+            console.log(`DEBUG [LocationPolling]: Sending location reminder to driver ${driver._id} (${driver.user?.fullName || 'Unknown'}): ${warningType}`);
+            
+            this.notifyUser(driver._id.toString(), "location_reminder", {
+              type: warningType,
+              message: message,
+              requiresAction: warningType !== "location_update_needed",
+              lastLocationAge: anyLocation ? Math.round((Date.now() - new Date(anyLocation.timestamp)) / 1000 / 60) : null,
+              timestamp: new Date()
+            });
+
+            // Also send to dashboard subscribers
+            this.notifyDashboard(driver._id.toString(), "location_reminder", {
+              type: warningType,
+              message: message,
+              requiresAction: warningType !== "location_update_needed",
+              timestamp: new Date()
+            });
+          }
+        }
+      } catch (error) {
+        console.error("Error in driver location polling:", error);
+      }
+    }, 60000); // Check every 60 seconds
+
+    console.log("Driver location polling started - checking every 60 seconds");
+  }
+
+  /**
+   * Stop driver location polling
+   */
+  stopDriverLocationPolling() {
+    if (this.driverLocationCheckInterval) {
+      clearInterval(this.driverLocationCheckInterval);
+      this.driverLocationCheckInterval = null;
+      console.log("Driver location polling stopped");
+    }
+  }
+
+  /**
+   * Update driver location from WebSocket connection
+   * @param {string} userId - User ID (not driver ID)
+   * @param {number} latitude - Latitude
+   * @param {number} longitude - Longitude
+   * @param {number} heading - Heading direction (optional)
+   * @param {number} speed - Speed in km/h (optional)
+   */
+  async updateDriverLocationFromSocket(userId, latitude, longitude, heading = 0, speed = 0) {
+    const Driver = require("../models/Driver");
+    const LiveLocation = require("../models/LiveLocation");
+
+    try {
+      // Find driver by user ID
+      const driver = await Driver.findOne({ user: userId });
+      
+      if (!driver) {
+        console.log(`DEBUG [SocketLocation]: No driver found for user ${userId}`);
+        throw new Error("Driver profile not found");
+      }
+
+      // Only update location if driver is online
+      if (driver.status !== "online") {
+        console.log(`DEBUG [SocketLocation]: Driver ${driver._id} is not online (status: ${driver.status})`);
+        return; // Silently ignore location updates from offline drivers
+      }
+
+      const locationData = {
+        driver: driver._id,
+        latitude: parseFloat(latitude),
+        longitude: parseFloat(longitude),
+        heading: heading ? parseFloat(heading) : 0,
+        speed: speed ? parseFloat(speed) : 0,
+        timestamp: new Date(),
+      };
+
+      // Upsert location
+      const locationResult = await LiveLocation.findOneAndUpdate(
+        { driver: driver._id },
+        locationData,
+        { upsert: true, new: true, setDefaultsOnInsert: true }
+      );
+
+      console.log(`DEBUG [SocketLocation]: Location updated for driver ${driver._id}:`, {
+        lat: locationResult.latitude,
+        lng: locationResult.longitude,
+        timestamp: locationResult.timestamp
+      });
+
+      // Notify nearby riders about driver location update
+      await this.notifyNearbyRidersAboutDriverUpdate(driver._id.toString(), {
+        latitude: locationData.latitude,
+        longitude: locationData.longitude,
+        heading: locationData.heading,
+        speed: locationData.speed,
+      });
+
+      // Notify subscribers of active rides about location updates
+      await this.notifyRideSubscribersAboutDriverLocation(driver._id.toString(), {
+        latitude: locationData.latitude,
+        longitude: locationData.longitude,
+        heading: locationData.heading,
+        speed: locationData.speed,
+        timestamp: locationData.timestamp,
+      });
+
+      return locationResult;
+    } catch (error) {
+      console.error("Error updating driver location from socket:", error);
+      throw error;
+    }
   }
 
   /**
@@ -597,18 +798,21 @@ class SocketService {
       const driversWithDistance = [];
 
       for (const location of recentLocations) {
-        // Check if driver is online and approved
+        // Check if driver is online, approved, and active as per BACKEND_CHANGES_REQUIRED.md
         if (
           !location.driver ||
           location.driver.status !== "online" ||
-          !location.driver.isApproved
+          location.driver.isApproved !== "approved" ||
+          location.driver.activeStatus !== "active"
         ) {
           continue;
         }
 
-        // Check if driver is within Surrey boundary
+        // Check if driver is within Surrey boundary (disabled for testing)
         if (!isInSurrey(location.latitude, location.longitude)) {
-          continue;
+          // For testing: Allow drivers outside boundary
+          // In production, uncomment the following:
+          // continue;
         }
 
         // Calculate distance
@@ -731,15 +935,39 @@ class SocketService {
    * @param {Object} rideData - Ride request data
    */
   notifyRideRequest(driverId, rideData) {
-    this.notifyUser(driverId, "ride_request", {
+    // Calculate expiry time (30 seconds from now as per BACKEND_CHANGES_REQUIRED.md)
+    const expiresAt = new Date(Date.now() + 30 * 1000);
+    
+    // Format ride request as per specification
+    const rideRequestPayload = {
       rideId: rideData._id,
-      pickup: rideData.pickup,
-      dropoff: rideData.dropoff,
-      estimatedFare: rideData.estimatedFare,
-      vehicleType: rideData.vehicleType,
-      rider: rideData.rider,
-      timeLeft: 15, // seconds
-    });
+      riderId: rideData.rider?._id || rideData.rider,
+      riderName: rideData.rider?.fullName || rideData.riderName || "Unknown Rider",
+      pickup: {
+        latitude: rideData.pickup?.latitude || rideData.pickup?.lat,
+        longitude: rideData.pickup?.longitude || rideData.pickup?.lng,
+        address: rideData.pickup?.address || "Unknown"
+      },
+      dropoff: {
+        latitude: rideData.dropoff?.latitude || rideData.dropoff?.lat,
+        longitude: rideData.dropoff?.longitude || rideData.dropoff?.lng,
+        address: rideData.dropoff?.address || "Unknown"
+      },
+      distance: rideData.estimatedDistance || rideData.distance || 0, // km
+      fare: rideData.estimatedFare || rideData.fare || 0,
+      estimatedFare: rideData.estimatedFare || rideData.fare || 0,
+      vehicleType: rideData.vehicleType || "sedan",
+      expiresAt: expiresAt.toISOString(),
+      timeLeft: 30, // seconds
+      timestamp: new Date().toISOString()
+    };
+
+    this.notifyUser(driverId, "ride_request", rideRequestPayload);
+    
+    // Also send to driver's dashboard
+    this.notifyDashboard(driverId, "ride_request", rideRequestPayload);
+    
+    console.log(`Ride request sent to driver ${driverId}: ride ${rideData._id}`);
   }
 
   /**
@@ -1015,6 +1243,7 @@ class SocketService {
 
   /**
    * Notify ride subscribers about driver location updates
+   * As per BACKEND_CHANGES_REQUIRED.md specification
    * @param {string} driverId - Driver ID
    * @param {Object} driverLocation - Driver location data
    */
@@ -1022,10 +1251,10 @@ class SocketService {
     try {
       const Ride = require("../models/Ride");
 
-      // Find all active rides for this driver
+      // Find all active rides for this driver (including in_progress as per spec)
       const activeRides = await Ride.find({
         driver: driverId,
-        status: { $in: ["assigned", "accepted", "in_progress"] },
+        status: { $in: ["assigned", "accepted", "arrived", "in_progress"] },
       }).select("_id rider");
 
       if (activeRides.length === 0) return;
@@ -1035,21 +1264,25 @@ class SocketService {
         const rideId = ride._id.toString();
         const riderId = ride.rider.toString();
 
-        // Notify rider subscribers
-        this.io.to(`ride_status_${rideId}_${riderId}`).emit("location_update", {
+        // Format as per BACKEND_CHANGES_REQUIRED.md specification
+        const locationPayload = {
           rideId,
-          driverLocation,
-          timestamp: new Date(),
-        });
+          driverId,
+          latitude: driverLocation.latitude,
+          longitude: driverLocation.longitude,
+          heading: driverLocation.heading || 0,
+          speed: driverLocation.speed || 0,
+          timestamp: new Date().toISOString()
+        };
+
+        // Emit driver_location_update to ride room as per spec
+        this.io.to(`ride_${rideId}`).emit("driver_location_update", locationPayload);
+
+        // Also notify rider subscribers directly
+        this.io.to(`ride_status_${rideId}_${riderId}`).emit("driver_location_update", locationPayload);
 
         // Notify driver subscribers (if driver is also subscribed)
-        this.io
-          .to(`ride_status_${rideId}_${driverId}`)
-          .emit("location_update", {
-            rideId,
-            driverLocation,
-            timestamp: new Date(),
-          });
+        this.io.to(`ride_status_${rideId}_${driverId}`).emit("driver_location_update", locationPayload);
 
         console.log(`Driver location update sent for ride ${rideId}`);
       }

@@ -9,6 +9,7 @@ const { driverPhotoUpload } = require("../config/multerConfig");
 
 const driverController = require("../controllers/driverController");
 const adminController = require("../controllers/adminController");
+const driverPayoutController = require("../controllers/driverPayoutController");
 
 // Middleware to parse form data for non-file routes
 const parseFormData = multer().none();
@@ -123,6 +124,20 @@ router.get(
   "/earnings",
   checkPermission("view_earnings"),
   driverController.getEarningsReport
+);
+
+// Driver Stripe earnings summary and payout
+router.get(
+  "/earnings/summary",
+  checkPermission("view_earnings"),
+  driverPayoutController.getEarnings
+);
+
+router.post(
+  "/earnings/payout",
+  checkPermission("request_payout"),
+  parseFormData,
+  driverPayoutController.requestPayout
 );
 
 // Driver stats

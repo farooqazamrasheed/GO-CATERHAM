@@ -64,7 +64,7 @@ const paymentMethodSchema = new mongoose.Schema(
     // Tokenized payment data (stored securely)
     paymentToken: {
       type: String,
-      required: true,
+      required: false, // Made optional since Stripe uses its own ID system
     },
     provider: {
       type: String,
@@ -75,6 +75,17 @@ const paymentMethodSchema = new mongoose.Schema(
       type: String,
       enum: ["active", "expired", "failed"],
       default: "active",
+    },
+    // Stripe-specific fields
+    stripePaymentMethodId: {
+      type: String,
+    },
+    stripeCustomerId: {
+      type: String,
+    },
+    // Enhanced card details from Stripe
+    fingerprint: {
+      type: String,
     },
   },
   { timestamps: true }
@@ -112,5 +123,33 @@ paymentMethodSchema.methods.isExpired = function () {
   }
   return false;
 };
+
+// Method to get safe payment method data (exclude sensitive info)
+paymentMethodSchema.methods.getSafeData = function () {
+  return {
+    _id: this._id,
+    type: this.type,
+    isDefault: this.isDefault,
+    provider: this.provider,
+    status: this.status,
+    card: this.card
+      ? {
+          last4: this.card.last4,
+          brand: this.card.brand,
+          expiryMonth: this.card.expiryMonth,
+          expiryYear: this.card.expiryYear,
+        }
+      : undefined,
+    paypal: this.paypal,
+    maskedCard: this.maskedCard,
+    isExpired: this.isExpired(),
+    createdAt: this.createdAt,
+  };
+};
+
+// Index for Stripe payment method lookups
+paymentMethodSchema.index({ stripePaymentMethodId: 1 });
+paymentMethodSchema.index({ rider: 1, isDefault: 1 });
+paymentMethodSchema.index({ status: 1 });
 
 module.exports = mongoose.model("PaymentMethod", paymentMethodSchema);
