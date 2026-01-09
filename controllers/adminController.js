@@ -2677,21 +2677,21 @@ exports.activateDriverAccount = async (req, res) => {
     }
 
     // Real-time WebSocket notifications for driver activation
-    socketService.notifyUser(driver.user.toString(), "account_activated", {
+    socketService.notifyUser(targetDriver.user.toString(), "account_activated", {
       userType: "driver",
-      driverId: driver._id,
+      driverId: targetDriver._id,
       activeStatus: "active",
       message: "Your driver account has been activated.",
       timestamp: new Date()
     });
 
-    socketService.notifyDriverDashboardUpdate(driver._id.toString(), {
+    socketService.notifyDriverDashboardUpdate(targetDriver._id.toString(), {
       activeStatus: "active",
       message: "Your account has been activated!"
     }, "account_status");
 
     socketService.notifyUser("admin", "admin_driver_activated", {
-      driverId: driver._id,
+      driverId: targetDriver._id,
       activatedBy: req.user.fullName || req.user.id,
       timestamp: new Date()
     });
@@ -2752,22 +2752,22 @@ exports.deactivateDriverAccount = async (req, res) => {
     }
 
     // Real-time WebSocket notifications for driver deactivation
-    socketService.notifyUser(driver.user.toString(), "account_deactivated", {
+    socketService.notifyUser(targetDriver.user.toString(), "account_deactivated", {
       userType: "driver",
-      driverId: driver._id,
+      driverId: targetDriver._id,
       activeStatus: "inactive",
       message: "Your driver account has been deactivated. Please contact support for more information.",
       timestamp: new Date()
     });
 
-    socketService.notifyDriverDashboardUpdate(driver._id.toString(), {
+    socketService.notifyDriverDashboardUpdate(targetDriver._id.toString(), {
       activeStatus: "inactive",
       status: "offline",
       message: "Your account has been deactivated."
     }, "account_status");
 
     socketService.notifyUser("admin", "admin_driver_deactivated", {
-      driverId: driver._id,
+      driverId: targetDriver._id,
       deactivatedBy: req.user.fullName || req.user.id,
       timestamp: new Date()
     });
@@ -2826,21 +2826,21 @@ exports.activateRiderAccount = async (req, res) => {
     }
 
     // Real-time WebSocket notifications for rider activation
-    socketService.notifyUser(rider.user.toString(), "account_activated", {
+    socketService.notifyUser(targetRider.user.toString(), "account_activated", {
       userType: "rider",
-      riderId: rider._id,
+      riderId: targetRider._id,
       activeStatus: "active",
       message: "Your rider account has been activated.",
       timestamp: new Date()
     });
 
-    socketService.notifyDashboard(rider._id.toString(), "account_status", {
+    socketService.notifyDashboard(targetRider._id.toString(), "account_status", {
       activeStatus: "active",
       message: "Your account has been activated!"
     });
 
     socketService.notifyUser("admin", "admin_rider_activated", {
-      riderId: rider._id,
+      riderId: targetRider._id,
       activatedBy: req.user.fullName || req.user.id,
       timestamp: new Date()
     });
@@ -2902,21 +2902,21 @@ exports.deactivateRiderAccount = async (req, res) => {
     }
 
     // Real-time WebSocket notifications for rider deactivation
-    socketService.notifyUser(rider.user.toString(), "account_deactivated", {
+    socketService.notifyUser(targetRider.user.toString(), "account_deactivated", {
       userType: "rider",
-      riderId: rider._id,
+      riderId: targetRider._id,
       activeStatus: "inactive",
       message: "Your rider account has been deactivated. Please contact support for more information.",
       timestamp: new Date()
     });
 
-    socketService.notifyDashboard(rider._id.toString(), "account_status", {
+    socketService.notifyDashboard(targetRider._id.toString(), "account_status", {
       activeStatus: "inactive",
       message: "Your account has been deactivated."
     });
 
     socketService.notifyUser("admin", "admin_rider_deactivated", {
-      riderId: rider._id,
+      riderId: targetRider._id,
       deactivatedBy: req.user.fullName || req.user.id,
       timestamp: new Date()
     });
