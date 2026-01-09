@@ -31,6 +31,25 @@ module.exports = function checkPermission(...requiredPermissions) {
           return next();
         }
 
+        // Admin type has most permissions by default (except creating other admins/superadmins)
+        if (admin.adminType === "admin") {
+          // Admin can do everything except superadmin-only actions
+          const superadminOnlyPermissions = [
+            "create_superadmin",
+            "delete_superadmin",
+            "manage_superadmin"
+          ];
+          
+          // Check if required permission is superadmin-only
+          const requiresSuperadmin = requiredPermissions.some(perm => 
+            superadminOnlyPermissions.includes(perm)
+          );
+          
+          if (!requiresSuperadmin) {
+            return next(); // Admin bypasses most permission checks
+          }
+        }
+
         const adminWithPermissions = await Admin.findOne({ user: req.user.id })
           .populate({
             path: "assignedPermissions.permissionId",

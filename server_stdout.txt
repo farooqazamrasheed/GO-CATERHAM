@@ -1,0 +1,19 @@
+[dotenv@17.2.3] injecting env (1) from .env -- tip: 🔐 prevent building .env in docker: https://dotenvx.com/prebuild
+Driver location polling started - checking every 60 seconds
+
+============================================================
+🚀 [WEBSOCKET SERVER INITIALIZED]
+   Ping Interval: 25 seconds
+   Ping Timeout: 60 seconds
+   Transports: websocket, polling
+============================================================
+
+MongoDB Connected
+Server running on port 5000
+Login attempt for identifier: superadmin@gocaterham.com role: superadmin
+User found: Yes
+Password match: true
+User isVerified: true
+[0mPOST /api/v1/auth/login [32m200[0m 4321.398 ms - 1770[0m
+[0mGET /api/v1/admin/drivers/unverified [32m200[0m 881.183 ms - 6922[0m
+[0mGET /api/v1/admin/drivers [32m200[0m 1993.088 ms - 36928[0m
