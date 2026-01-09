@@ -1193,6 +1193,10 @@ exports.startRide = async (req, res) => {
 
     // Send notification to rider about ride start
     socketService.notifyRideStatus(ride.rider.toString(), "in_progress", ride);
+    
+    // Send dedicated ride_started notification to rider
+    socketService.notifyRideStarted(ride.rider.toString(), ride);
+    
     await socketService.notifyAdminRideUpdate(ride);
 
     // Trigger immediate active ride update for real-time tracking

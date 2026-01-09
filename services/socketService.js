@@ -1516,6 +1516,83 @@ class SocketService {
    * @param {string} riderId - Rider ID
    * @param {Object} historyUpdate - History update data
    */
+
+  /**
+   * Notify rider when driver starts the ride (picks up rider)
+   * @param {string} riderId - Rider user ID
+   * @param {Object} rideData - Ride information
+   */
+  notifyRideStarted(riderId, rideData) {
+    if (this.io) {
+      const payload = {
+        rideId: rideData._id || rideData.rideId,
+        driverId: rideData.driver?._id || rideData.driverId,
+        driverName: rideData.driver?.user?.fullName || rideData.driverName || "Your driver",
+        startTime: rideData.startTime || new Date(),
+        pickup: rideData.pickup,
+        dropoff: rideData.dropoff,
+        estimatedDuration: rideData.estimatedDuration,
+        message: "Your ride has started. Enjoy your trip!",
+        timestamp: new Date(),
+      };
+
+      this.notifyUser(riderId, "ride_started", payload);
+      console.log(Ride started notification sent to rider ${riderId}: ride ${payload.rideId});
+    }
+  }
+
+  /**
+   * Notify rider when ride is completed
+   * @param {string} riderId - Rider user ID
+   * @param {Object} rideData - Ride completion information
+   */
+  notifyRideCompleted(riderId, rideData) {
+    if (this.io) {
+      const payload = {
+        rideId: rideData._id || rideData.rideId,
+        driverId: rideData.driver?._id || rideData.driverId,
+        driverName: rideData.driver?.user?.fullName || rideData.driverName,
+        fare: rideData.fare,
+        distance: rideData.actualDistance || rideData.estimatedDistance,
+        duration: rideData.actualDuration || rideData.estimatedDuration,
+        startTime: rideData.startTime,
+        endTime: rideData.endTime || new Date(),
+        paymentMethod: rideData.paymentMethod,
+        message: "Thank you for riding with us!",
+        timestamp: new Date(),
+      };
+
+      this.notifyUser(riderId, "ride_completed", payload);
+      console.log(Ride completed notification sent to rider ${riderId}: ride ${payload.rideId});
+    }
+  }
+
+  /**
+   * Notify rider about reward points earned
+   * @param {string} riderId - Rider user ID
+   * @param {Object} rewardData - Reward information
+   */
+  notifyRewardEarned(riderId, rewardData) {
+    if (this.io) {
+      const payload = {
+        points: rewardData.points || rewardData.amount,
+        reason: rewardData.reason || rewardData.description,
+        newBalance: rewardData.newBalance || rewardData.balanceAfter,
+        tier: rewardData.tier || rewardData.currentTier,
+        rideId: rewardData.rideId || rewardData.ride,
+        message: `You earned ${rewardData.points || rewardData.amount} points!`,
+        timestamp: new Date(),
+      };
+
+      // Send to rewards subscribers
+      this.io.to(`rewards_${riderId}`).emit("reward_earned", payload);
+
+      // Also send to user's personal room
+      this.notifyUser(riderId, "reward_earned", payload);
+
+      console.log(Reward earned notification sent to rider ${riderId}: ${payload.points} points);
+    }
+  }
   notifyRideHistoryUpdate(riderId, historyUpdate) {
     if (this.io) {
       this.io.to(`ride_history_${riderId}`).emit("ride_history_update", {

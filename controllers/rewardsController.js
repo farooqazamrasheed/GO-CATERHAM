@@ -532,6 +532,15 @@ exports.awardPoints = async (
       newBalance: rider.points.balance,
       tier: rider.points.currentTier,
     });
+    
+    // Send dedicated reward_earned notification to rider
+    socketService.notifyRewardEarned(riderId.toString(), {
+      points,
+      reason: description,
+      newBalance: rider.points.balance,
+      tier: rider.points.currentTier,
+      rideId: ride,
+    });
 
     return rider.points.balance;
   } catch (error) {
