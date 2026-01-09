@@ -46,14 +46,28 @@ class SocketService {
    * Setup socket event handlers
    */
   setupSocketHandlers() {
+    // Track connected users for logging
+    this.connectedUsers = this.connectedUsers || new Map();
+
     this.io.on("connection", async (socket) => {
-      console.log("User connected:", socket.id);
+      const timestamp = new Date().toISOString();
+      console.log(`\n${'='.repeat(60)}`);
+      console.log(`🔌 [WEBSOCKET CONNECTED]`);
+      console.log(`   Socket ID: ${socket.id}`);
+      console.log(`   Time: ${timestamp}`);
+      console.log(`   Transport: ${socket.conn.transport.name}`);
+      console.log(`   IP: ${socket.handshake.address}`);
 
       try {
         // Authenticate user from token
         const token = socket.handshake.query.token;
         if (!token) {
-          console.log("No token provided for socket connection");
+          console.log(`   ❌ Auth Failed: No token provided`);
+          console.log(`${'='.repeat(60)}\n`);
+          socket.emit("connection_error", { 
+            message: "No authentication token provided",
+            code: "NO_TOKEN"
+          });
           socket.disconnect();
           return;
         }
@@ -62,17 +76,67 @@ class SocketService {
         const decoded = verifyToken(token);
         const userId = decoded.id;
 
+        // Get user details for logging
+        const User = require("../models/User");
+        const user = await User.findById(userId).select("fullName email role");
+        const userName = user?.fullName || "Unknown";
+        const userRole = user?.role || "unknown";
+
         // Automatically join user-specific room
         socket.join(userId);
-        console.log(`User ${userId} automatically joined room`);
 
         // Store userId on socket for later use
         socket.userId = userId;
+        socket.userName = userName;
+        socket.userRole = userRole;
+
+        // Track connected user
+        this.connectedUsers.set(socket.id, {
+          userId,
+          userName,
+          userRole,
+          connectedAt: new Date(),
+          transport: socket.conn.transport.name
+        });
+
+        console.log(`   ✅ Auth Success`);
+        console.log(`   User ID: ${userId}`);
+        console.log(`   User Name: ${userName}`);
+        console.log(`   User Role: ${userRole}`);
+        console.log(`   Total Connected: ${this.connectedUsers.size}`);
+        console.log(`${'='.repeat(60)}\n`);
+
+        // Send connection acknowledgment to client
+        socket.emit("connection_success", {
+          message: "Connected successfully",
+          userId: userId,
+          socketId: socket.id,
+          timestamp: new Date().toISOString()
+        });
+
       } catch (error) {
-        console.log("Socket authentication failed:", error.message);
+        console.log(`   ❌ Auth Failed: ${error.message}`);
+        console.log(`${'='.repeat(60)}\n`);
+        socket.emit("connection_error", { 
+          message: "Authentication failed: " + error.message,
+          code: "AUTH_FAILED"
+        });
         socket.disconnect();
         return;
       }
+
+      // Handle ping from client (custom heartbeat for mobile apps)
+      socket.on("ping_server", (data) => {
+        socket.emit("pong_server", {
+          timestamp: new Date().toISOString(),
+          received: data?.timestamp || null
+        });
+      });
+
+      // Handle reconnection attempt
+      socket.on("reconnect_attempt", () => {
+        console.log(`🔄 [WEBSOCKET RECONNECTING] User: ${socket.userName} (${socket.userId})`);
+      });
 
       //-----------------------------------------------------------------
       // // Log all incoming socket events
@@ -86,7 +150,8 @@ class SocketService {
         const { userId, userType, latitude, longitude } = data;
         if (userId && userType === "driver") {
           socket.join(`dashboard_${userId}`);
-          console.log(`Driver ${userId} subscribed to dashboard updates`);
+          console.log(`📊 [DASHBOARD SUBSCRIBE] Driver: ${socket.userName || userId} (${userType})`);
+          console.log(`   Location: ${latitude ? `(${latitude}, ${longitude})` : 'Not provided'}`);
 
           // Send initial dashboard data
           this.sendInitialDashboardData(userId, latitude, longitude);
@@ -97,7 +162,8 @@ class SocketService {
           }
         } else if (userId && userType === "rider") {
           socket.join(`rider_dashboard_${userId}`);
-          console.log(`Rider ${userId} subscribed to dashboard updates`);
+          console.log(`📊 [DASHBOARD SUBSCRIBE] Rider: ${socket.userName || userId} (${userType})`);
+          console.log(`   Location: ${latitude ? `(${latitude}, ${longitude})` : 'Not provided'}`);
 
           // Send initial rider dashboard data
           this.sendInitialRiderDashboardData(userId, latitude, longitude);
@@ -136,7 +202,7 @@ class SocketService {
       socket.on("unsubscribe_dashboard", (userId) => {
         socket.leave(`dashboard_${userId}`);
         socket.leave(`rider_dashboard_${userId}`);
-        console.log(`User ${userId} unsubscribed from dashboard`);
+        console.log(`📊 [DASHBOARD UNSUBSCRIBE] User: ${socket.userName || userId}`);
       });
 
       // Handle ride-related events
@@ -200,8 +266,48 @@ class SocketService {
         console.log(`User ${userId} unsubscribed from rewards updates`);
       });
 
-      socket.on("disconnect", () => {
-        console.log("User disconnected:", socket.id);
+      socket.on("disconnect", (reason) => {
+        const timestamp = new Date().toISOString();
+        const connectedInfo = this.connectedUsers?.get(socket.id);
+        const connectionDuration = connectedInfo 
+          ? Math.round((Date.now() - connectedInfo.connectedAt) / 1000) 
+          : 0;
+
+        // Remove from tracked users
+        this.connectedUsers?.delete(socket.id);
+
+        console.log(`\n${'='.repeat(60)}`);
+        console.log(`🔌 [WEBSOCKET DISCONNECTED]`);
+        console.log(`   Socket ID: ${socket.id}`);
+        console.log(`   User ID: ${socket.userId || 'N/A'}`);
+        console.log(`   User Name: ${socket.userName || 'N/A'}`);
+        console.log(`   User Role: ${socket.userRole || 'N/A'}`);
+        console.log(`   Reason: ${reason}`);
+        console.log(`   Session Duration: ${connectionDuration} seconds`);
+        console.log(`   Time: ${timestamp}`);
+        console.log(`   Remaining Connected: ${this.connectedUsers?.size || 0}`);
+        
+        // Log disconnection reason explanation
+        const reasonExplanations = {
+          'io server disconnect': '⚠️  Server forced disconnect',
+          'io client disconnect': '👋 Client initiated disconnect',
+          'ping timeout': '⏰ Client stopped responding to pings',
+          'transport close': '🚫 Connection was closed',
+          'transport error': '❌ Transport error occurred'
+        };
+        if (reasonExplanations[reason]) {
+          console.log(`   Explanation: ${reasonExplanations[reason]}`);
+        }
+        console.log(`${'='.repeat(60)}\n`);
+      });
+
+      // Handle connection errors
+      socket.on("error", (error) => {
+        console.log(`\n⚠️  [WEBSOCKET ERROR]`);
+        console.log(`   Socket ID: ${socket.id}`);
+        console.log(`   User: ${socket.userName || socket.userId || 'Unknown'}`);
+        console.log(`   Error: ${error.message}`);
+        console.log('');
       });
     });
   }
@@ -292,9 +398,12 @@ class SocketService {
             }
 
             // Send location reminder to driver via WebSocket
-            console.log(`DEBUG [LocationPolling]: Sending location reminder to driver ${driver._id} (${driver.user?.fullName || 'Unknown'}): ${warningType}`);
+            // IMPORTANT: Use driver.user (User ID) not driver._id (Driver ID)
+            // because sockets join rooms using User ID from JWT token
+            const driverUserId = driver.user?.toString() || driver.user;
+            console.log(`DEBUG [LocationPolling]: Sending location reminder to driver ${driver._id} (User: ${driverUserId}, ${driver.user?.fullName || 'Unknown'}): ${warningType}`);
             
-            this.notifyUser(driver._id.toString(), "location_reminder", {
+            this.notifyUser(driverUserId, "location_reminder", {
               type: warningType,
               message: message,
               requiresAction: warningType !== "location_update_needed",
@@ -302,8 +411,8 @@ class SocketService {
               timestamp: new Date()
             });
 
-            // Also send to dashboard subscribers
-            this.notifyDashboard(driver._id.toString(), "location_reminder", {
+            // Also send to dashboard subscribers (using User ID)
+            this.notifyDashboard(driverUserId, "location_reminder", {
               type: warningType,
               message: message,
               requiresAction: warningType !== "location_update_needed",
@@ -328,6 +437,45 @@ class SocketService {
       this.driverLocationCheckInterval = null;
       console.log("Driver location polling stopped");
     }
+  }
+
+  /**
+   * Get count of connected WebSocket users
+   * @returns {Object} Connection statistics
+   */
+  getConnectionStats() {
+    const stats = {
+      totalConnected: this.connectedUsers?.size || 0,
+      users: []
+    };
+
+    if (this.connectedUsers) {
+      this.connectedUsers.forEach((info, socketId) => {
+        stats.users.push({
+          socketId,
+          ...info,
+          connectedFor: Math.round((Date.now() - info.connectedAt) / 1000) + ' seconds'
+        });
+      });
+    }
+
+    return stats;
+  }
+
+  /**
+   * Log current connection status to console
+   */
+  logConnectionStatus() {
+    const stats = this.getConnectionStats();
+    console.log(`\n📡 [WEBSOCKET STATUS]`);
+    console.log(`   Total Connected: ${stats.totalConnected}`);
+    if (stats.users.length > 0) {
+      console.log(`   Connected Users:`);
+      stats.users.forEach(u => {
+        console.log(`     - ${u.userName} (${u.userRole}) - ${u.connectedFor}`);
+      });
+    }
+    console.log('');
   }
 
   /**
@@ -931,10 +1079,13 @@ class SocketService {
 
   /**
    * Notify driver about new ride request
-   * @param {string} driverId - Driver ID
+   * @param {string} driverId - Driver ID (will be converted to User ID)
    * @param {Object} rideData - Ride request data
    */
-  notifyRideRequest(driverId, rideData) {
+  async notifyRideRequest(driverId, rideData) {
+    // Convert Driver ID to User ID for proper socket targeting
+    const userId = await this.getDriverUserId(driverId);
+    
     // Calculate expiry time (30 seconds from now as per BACKEND_CHANGES_REQUIRED.md)
     const expiresAt = new Date(Date.now() + 30 * 1000);
     
@@ -962,21 +1113,22 @@ class SocketService {
       timestamp: new Date().toISOString()
     };
 
-    this.notifyUser(driverId, "ride_request", rideRequestPayload);
+    this.notifyUser(userId, "ride_request", rideRequestPayload);
     
-    // Also send to driver's dashboard
-    this.notifyDashboard(driverId, "ride_request", rideRequestPayload);
+    // Also send to driver's dashboard (using User ID)
+    this.notifyDashboard(userId, "ride_request", rideRequestPayload);
     
-    console.log(`Ride request sent to driver ${driverId}: ride ${rideData._id}`);
+    console.log(`Ride request sent to driver ${driverId} (user: ${userId}): ride ${rideData._id}`);
   }
 
   /**
    * Notify driver that ride was taken by another driver
-   * @param {string} driverId - Driver ID
+   * @param {string} driverId - Driver ID (will be converted to User ID)
    * @param {string} rideId - Ride ID
    */
-  notifyRideTaken(driverId, rideId) {
-    this.notifyUser(driverId, "ride_taken", { rideId });
+  async notifyRideTaken(driverId, rideId) {
+    const userId = await this.getDriverUserId(driverId);
+    this.notifyUser(userId, "ride_taken", { rideId });
   }
 
   /**
@@ -1026,33 +1178,70 @@ class SocketService {
   }
 
   /**
+   * Get User ID from Driver ID
+   * Socket rooms are joined using User ID (from JWT), but many functions receive Driver ID
+   * This helper converts Driver ID to User ID for proper notification delivery
+   * @param {string} driverId - Driver ID (can be Driver._id or User._id)
+   * @returns {Promise<string|null>} User ID or null if not found
+   */
+  async getDriverUserId(driverId) {
+    try {
+      const Driver = require("../models/Driver");
+      
+      // First check if this is already a User ID by looking for a driver with this user field
+      let driver = await Driver.findOne({ user: driverId }).select("user");
+      if (driver) {
+        return driverId; // It's already a User ID
+      }
+      
+      // Otherwise, try to find driver by _id
+      driver = await Driver.findById(driverId).select("user");
+      if (driver && driver.user) {
+        return driver.user.toString();
+      }
+      
+      // Return the original ID as fallback (might already be correct)
+      return driverId;
+    } catch (error) {
+      console.error("Error getting driver user ID:", error);
+      return driverId; // Return original as fallback
+    }
+  }
+
+  /**
    * Notify driver about dashboard data updates
-   * @param {string} driverId - Driver ID
+   * @param {string} driverId - Driver ID (will be converted to User ID for socket delivery)
    * @param {Object} updateData - Updated dashboard data
    * @param {string} updateType - Type of update (earnings, status, nearby_rides, etc.)
    */
-  notifyDriverDashboardUpdate(driverId, updateData, updateType = "general") {
+  async notifyDriverDashboardUpdate(driverId, updateData, updateType = "general") {
     const notificationData = {
       updateType,
       data: updateData,
       timestamp: new Date(),
     };
 
-    // Send to user's personal room
-    this.notifyUser(driverId, "dashboard_update", notificationData);
+    // Convert Driver ID to User ID for proper socket room targeting
+    const userId = await this.getDriverUserId(driverId);
+    
+    // Send to user's personal room (using User ID)
+    this.notifyUser(userId, "dashboard_update", notificationData);
 
-    // Also send to dashboard subscribers
-    this.notifyDashboard(driverId, "dashboard_update", notificationData);
+    // Also send to dashboard subscribers (using User ID)
+    this.notifyDashboard(userId, "dashboard_update", notificationData);
   }
 
   /**
    * Notify driver about earnings update
-   * @param {string} driverId - Driver ID
+   * @param {string} driverId - Driver ID (will be converted to User ID)
    * @param {Object} earningsData - Updated earnings information
    */
-  notifyDriverEarningsUpdate(driverId, earningsData) {
+  async notifyDriverEarningsUpdate(driverId, earningsData) {
+    // Convert Driver ID to User ID
+    const userId = await this.getDriverUserId(driverId);
+    
     // Send to dashboard subscribers
-    this.notifyDriverDashboardUpdate(
+    await this.notifyDriverDashboardUpdate(
       driverId,
       {
         earnings: earningsData,
@@ -1060,23 +1249,23 @@ class SocketService {
       "earnings"
     );
 
-    // Also send to earnings subscribers
+    // Also send to earnings subscribers (using User ID)
     if (this.io) {
-      this.io.to(`earnings_${driverId}`).emit("earnings_update", {
+      this.io.to(`earnings_${userId}`).emit("earnings_update", {
         ...earningsData,
         timestamp: new Date(),
       });
-      console.log(`Earnings update sent to driver ${driverId}`);
+      console.log(`Earnings update sent to driver ${driverId} (user: ${userId})`);
     }
   }
 
   /**
    * Notify driver about nearby ride requests
-   * @param {string} driverId - Driver ID
+   * @param {string} driverId - Driver ID (will be converted to User ID)
    * @param {Array} rideRequests - Array of nearby ride requests
    */
-  notifyNearbyRideRequests(driverId, rideRequests) {
-    this.notifyDriverDashboardUpdate(
+  async notifyNearbyRideRequests(driverId, rideRequests) {
+    await this.notifyDriverDashboardUpdate(
       driverId,
       {
         nearbyRideRequests: rideRequests,
@@ -1087,11 +1276,11 @@ class SocketService {
 
   /**
    * Notify driver about nearby drivers update
-   * @param {string} driverId - Driver ID
+   * @param {string} driverId - Driver ID (will be converted to User ID)
    * @param {Array} nearbyDrivers - Array of nearby drivers
    */
-  notifyNearbyDriversUpdate(driverId, nearbyDrivers) {
-    this.notifyDriverDashboardUpdate(
+  async notifyNearbyDriversUpdate(driverId, nearbyDrivers) {
+    await this.notifyDriverDashboardUpdate(
       driverId,
       {
         nearbyDrivers: nearbyDrivers,
@@ -1102,11 +1291,11 @@ class SocketService {
 
   /**
    * Notify driver about status change
-   * @param {string} driverId - Driver ID
+   * @param {string} driverId - Driver ID (will be converted to User ID)
    * @param {string} newStatus - New driver status
    */
-  notifyDriverStatusUpdate(driverId, newStatus) {
-    this.notifyDriverDashboardUpdate(
+  async notifyDriverStatusUpdate(driverId, newStatus) {
+    await this.notifyDriverDashboardUpdate(
       driverId,
       {
         status: newStatus,
@@ -1117,15 +1306,16 @@ class SocketService {
 
   /**
    * Notify driver about profile update
-   * @param {string} driverId - Driver ID
+   * @param {string} driverId - Driver ID (will be converted to User ID)
    * @param {Object} updateData - Profile update data
    */
-  notifyDriverProfileUpdate(driverId, updateData) {
-    this.notifyUser(driverId, "profile_update", {
+  async notifyDriverProfileUpdate(driverId, updateData) {
+    const userId = await this.getDriverUserId(driverId);
+    this.notifyUser(userId, "profile_update", {
       ...updateData,
       timestamp: new Date(),
     });
-    console.log(`Profile update notification sent to driver ${driverId}`);
+    console.log(`Profile update notification sent to driver ${driverId} (user: ${userId})`);
   }
 
   /**

@@ -97,6 +97,13 @@ router.get(
   riderController.getAvailableDrivers
 );
 
+// Debug endpoint to check why drivers are not appearing (for troubleshooting)
+router.get(
+  "/debug-drivers",
+  checkPermission("view_dashboard"),
+  riderController.debugAvailableDrivers
+);
+
 // Rider management - for admins with permissions
 router.get(
   "/:riderId",

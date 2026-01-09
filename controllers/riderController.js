@@ -714,6 +714,91 @@ exports.getAvailableDrivers = async (req, res) => {
   }
 };
 
+/**
+ * Diagnostic endpoint to check why drivers are not appearing
+ * GET /api/v1/riders/debug-drivers?latitude=X&longitude=Y
+ */
+exports.debugAvailableDrivers = async (req, res) => {
+  try {
+    const { latitude, longitude } = req.query;
+    
+    if (!latitude || !longitude) {
+      return sendError(res, "Latitude and longitude are required", 400);
+    }
+
+    const userLat = parseFloat(latitude);
+    const userLon = parseFloat(longitude);
+    const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
+
+    // Get ALL driver locations (not just recent)
+    const allLocations = await LiveLocation.find().populate({
+      path: "driver",
+      populate: { path: "user", select: "fullName" }
+    });
+
+    const debugInfo = {
+      searchLocation: { latitude: userLat, longitude: userLon },
+      totalLocationsInDB: allLocations.length,
+      analysis: []
+    };
+
+    for (const location of allLocations) {
+      const isRecent = location.timestamp >= fiveMinutesAgo;
+      const ageMinutes = Math.round((Date.now() - location.timestamp) / 1000 / 60);
+      const distance = calculateDistance(userLat, userLon, location.latitude, location.longitude);
+      
+      const driverAnalysis = {
+        driverId: location.driver?._id || "N/A",
+        driverName: location.driver?.user?.fullName || "Unknown",
+        location: { lat: location.latitude, lng: location.longitude },
+        distanceKm: Math.round(distance * 100) / 100,
+        withinRange: distance <= 5,
+        locationAge: `${ageMinutes} minutes`,
+        isLocationRecent: isRecent,
+        driverStatus: location.driver?.status || "N/A",
+        isApproved: location.driver?.isApproved || "N/A",
+        activeStatus: location.driver?.activeStatus || "N/A",
+        issues: []
+      };
+
+      // Check for issues
+      if (!isRecent) {
+        driverAnalysis.issues.push(`Location is ${ageMinutes} min old (must be < 5 min)`);
+      }
+      if (location.driver?.status !== "online") {
+        driverAnalysis.issues.push(`Driver status is "${location.driver?.status}" (must be "online")`);
+      }
+      if (location.driver?.isApproved !== "approved") {
+        driverAnalysis.issues.push(`Driver isApproved is "${location.driver?.isApproved}" (must be "approved")`);
+      }
+      if (location.driver?.activeStatus !== "active") {
+        driverAnalysis.issues.push(`Driver activeStatus is "${location.driver?.activeStatus}" (must be "active")`);
+      }
+      if (distance > 5) {
+        driverAnalysis.issues.push(`Distance ${distance.toFixed(2)} km exceeds 5km limit`);
+      }
+
+      driverAnalysis.wouldAppear = driverAnalysis.issues.length === 0;
+      debugInfo.analysis.push(driverAnalysis);
+    }
+
+    // Summary
+    debugInfo.summary = {
+      driversWithRecentLocation: debugInfo.analysis.filter(d => d.isLocationRecent).length,
+      driversWithinRange: debugInfo.analysis.filter(d => d.withinRange).length,
+      driversOnline: debugInfo.analysis.filter(d => d.driverStatus === "online").length,
+      driversApproved: debugInfo.analysis.filter(d => d.isApproved === "approved").length,
+      driversActive: debugInfo.analysis.filter(d => d.activeStatus === "active").length,
+      driversWouldAppear: debugInfo.analysis.filter(d => d.wouldAppear).length,
+    };
+
+    sendSuccess(res, debugInfo, "Driver debug information", 200);
+  } catch (error) {
+    console.error("Debug drivers error:", error);
+    sendError(res, "Failed to debug drivers", 500);
+  }
+};
+
 // Helper function to get nearby available drivers
 async function getNearbyDrivers(userLat, userLon, maxDistanceKm = 5, vehicleType = null) {
   try {
@@ -731,6 +816,12 @@ async function getNearbyDrivers(userLat, userLon, maxDistanceKm = 5, vehicleType
     const totalLocations = await LiveLocation.countDocuments();
     console.log("DEBUG [getNearbyDrivers]: Total LiveLocation records:", totalLocations);
 
+    // Also get count of stale locations to help debug
+    const staleLocationsCount = await LiveLocation.countDocuments({
+      timestamp: { $lt: fiveMinutesAgo }
+    });
+    console.log("DEBUG [getNearbyDrivers]: Stale locations (>5 min old):", staleLocationsCount);
+
     const recentLocations = await LiveLocation.find({
       timestamp: { $gte: fiveMinutesAgo },
     }).populate({
@@ -741,7 +832,16 @@ async function getNearbyDrivers(userLat, userLon, maxDistanceKm = 5, vehicleType
       },
     });
 
-    console.log("DEBUG [getNearbyDrivers]: Found", recentLocations.length, "recent locations");
+    console.log("DEBUG [getNearbyDrivers]: Found", recentLocations.length, "recent locations (within 5 min)");
+    
+    // If no recent locations but there are stale ones, log details
+    if (recentLocations.length === 0 && staleLocationsCount > 0) {
+      const mostRecentStale = await LiveLocation.findOne().sort({ timestamp: -1 }).populate("driver");
+      if (mostRecentStale) {
+        const ageMinutes = Math.round((Date.now() - mostRecentStale.timestamp) / 1000 / 60);
+        console.log("DEBUG [getNearbyDrivers]: WARNING - No recent locations! Most recent is", ageMinutes, "minutes old from driver:", mostRecentStale.driver?._id);
+      }
+    }
 
     const driversWithDistance = [];
     let filteredOut = {
@@ -812,6 +912,16 @@ async function getNearbyDrivers(userLat, userLon, maxDistanceKm = 5, vehicleType
         location.longitude
       );
 
+      // Debug: Log distance calculation for each driver
+      console.log("DEBUG [getNearbyDrivers]: Distance calculation:", {
+        driverId: location.driver._id,
+        driverLocation: { lat: location.latitude, lng: location.longitude },
+        userLocation: { lat: userLat, lng: userLon },
+        calculatedDistance: distance.toFixed(2) + " km",
+        maxAllowed: maxDistanceKm + " km",
+        withinRange: distance <= maxDistanceKm
+      });
+
       // Only include drivers within specified distance
       if (distance <= maxDistanceKm) {
         // Calculate ETA (estimated time of arrival)
@@ -833,6 +943,11 @@ async function getNearbyDrivers(userLat, userLon, maxDistanceKm = 5, vehicleType
         });
       } else {
         filteredOut.tooFar++;
+        console.log("DEBUG [getNearbyDrivers]: Driver TOO FAR:", {
+          driverId: location.driver._id,
+          distance: distance.toFixed(2) + " km",
+          maxAllowed: maxDistanceKm + " km"
+        });
       }
     }
 
