@@ -1417,6 +1417,9 @@ exports.completeRide = async (req, res) => {
       },
     });
 
+    // Send dedicated ride_completed notification to rider
+    socketService.notifyRideCompleted(ride.rider.toString(), ride);
+
     // 2. Notify rider about payment processing
     if (paymentStatus === "paid") {
       socketService.notifyUser(ride.rider.toString(), "payment_processed", {

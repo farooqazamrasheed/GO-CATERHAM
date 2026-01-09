@@ -1537,7 +1537,7 @@ class SocketService {
       };
 
       this.notifyUser(riderId, "ride_started", payload);
-      console.log(Ride started notification sent to rider ${riderId}: ride ${payload.rideId});
+      console.log(`Ride started notification sent to rider ${riderId}: ride ${payload.rideId}`);
     }
   }
 
