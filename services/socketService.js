@@ -59,10 +59,12 @@ class SocketService {
       console.log(`   IP: ${socket.handshake.address}`);
 
       try {
-        // Authenticate user from token
-        const token = socket.handshake.query.token;
+        // Authenticate user from token (Socket.IO v3+ standard: auth object)
+        const token = socket.handshake.auth.token;
         if (!token) {
           console.log(`   ❌ Auth Failed: No token provided`);
+          console.log(`   Debug - socket.handshake.auth:`, socket.handshake.auth);
+          console.log(`   Debug - socket.handshake.query:`, socket.handshake.query);
           console.log(`${'='.repeat(60)}\n`);
           socket.emit("connection_error", { 
             message: "No authentication token provided",
@@ -71,6 +73,8 @@ class SocketService {
           socket.disconnect();
           return;
         }
+        
+        console.log(`   ✅ Token received, length: ${token.length}`);
 
         const { verifyToken } = require("../utils/jwt");
         const decoded = verifyToken(token);

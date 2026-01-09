@@ -21,13 +21,28 @@ router.post(
 // Rider actions
 router.post(
   "/book",
-  formDataParser.none(),
+  // Support both form-data and JSON content types
+  (req, res, next) => {
+    const contentType = req.headers['content-type'];
+    if (contentType && contentType.includes('multipart/form-data')) {
+      return formDataParser.none()(req, res, next);
+    }
+    // If JSON or other, let express.json() middleware handle it (already configured in app.js)
+    next();
+  },
   checkPermission("book_ride"),
   rideController.bookRide
 );
 router.post(
   "/request",
-  formDataParser.none(),
+  // Support both form-data and JSON content types
+  (req, res, next) => {
+    const contentType = req.headers['content-type'];
+    if (contentType && contentType.includes('multipart/form-data')) {
+      return formDataParser.none()(req, res, next);
+    }
+    next();
+  },
   checkPermission("book_ride"),
   rideController.bookRide
 ); // Alias for /book

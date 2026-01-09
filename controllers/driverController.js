@@ -1465,6 +1465,115 @@ exports.activateAccount = async (req, res) => {
   }
 };
 
+// Get driver's past rides with pagination and filtering
+exports.getRideHistory = async (req, res) => {
+  try {
+    const driverId = req.user.id;
+    const {
+      page = 1,
+      limit = 10,
+      status, // 'completed', 'cancelled', or undefined for all
+    } = req.query;
+
+    // Validate parameters
+    const pageNum = parseInt(page);
+    const limitNum = parseInt(limit);
+
+    if (isNaN(pageNum) || pageNum < 1) {
+      return sendError(res, "Invalid page number", 400);
+    }
+
+    if (isNaN(limitNum) || limitNum < 1 || limitNum > 50) {
+      return sendError(res, "Invalid limit (1-50 allowed)", 400);
+    }
+
+    // Build query
+    const query = { driver: driverId };
+
+    // Add status filter if provided
+    if (status) {
+      if (!["completed", "cancelled"].includes(status)) {
+        return sendError(
+          res,
+          "Invalid status. Must be 'completed' or 'cancelled'",
+          400
+        );
+      }
+      query.status = status;
+    }
+
+    // Get total count for pagination
+    const totalRides = await Ride.countDocuments(query);
+    const totalPages = Math.ceil(totalRides / limitNum);
+    const skip = (pageNum - 1) * limitNum;
+
+    // Get rides with pagination
+    const rides = await Ride.find(query)
+      .populate({
+        path: "rider",
+        populate: [
+          {
+            path: "user",
+            select: "fullName",
+          },
+        ],
+      })
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limitNum);
+
+    // Format rides data
+    const formattedRides = rides.map((ride) => {
+      const rider = ride.rider;
+
+      return {
+        rideId: ride._id,
+        dateTime: ride.createdAt,
+        pickupAddress: ride.pickup?.address || "N/A",
+        dropoffAddress: ride.dropoff?.address || "N/A",
+        rider: rider
+          ? {
+              name: rider.user?.fullName || "Unknown Rider",
+              rating: rider.rating || 5.0,
+            }
+          : null,
+        fare: ride.fare || 0,
+        driverEarnings: ride.driverEarnings || 0,
+        distance: ride.actualDistance || ride.estimatedDistance || 0,
+        duration: ride.actualDuration || ride.estimatedDuration || 0,
+        status: ride.status,
+        rating: ride.rating?.riderRating || null,
+      };
+    });
+
+    const response = {
+      rides: formattedRides,
+      pagination: {
+        currentPage: pageNum,
+        totalPages,
+        totalRides,
+        hasNext: pageNum < totalPages,
+        hasPrev: pageNum > 1,
+        limit: limitNum,
+      },
+      realTimeUpdates: {
+        subscribed: true,
+        updateInterval: 30000, // 30 seconds for history updates (less frequent than active rides)
+        events: ["ride_completed", "ride_cancelled", "ride_history_update"],
+      },
+    };
+
+    // Subscribe user to real-time ride history updates
+    const socketService = require("../services/socketService");
+    socketService.subscribeToRideHistoryUpdates(driverId);
+
+    sendSuccess(res, response, "Ride history retrieved successfully", 200);
+  } catch (error) {
+    console.error("Get ride history error:", error);
+    sendError(res, "Failed to retrieve ride history", 500);
+  }
+};
+
 // Get driver stats
 exports.getStats = async (req, res) => {
   try {

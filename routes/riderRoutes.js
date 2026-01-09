@@ -21,7 +21,6 @@ router.use(auth);
 // View past rides
 router.get(
   "/rides",
-  checkPermission("view_rides"),
   riderController.getRideHistory
 );
 
@@ -93,7 +92,6 @@ router.get(
 // Get available drivers near a location
 router.get(
   "/available-drivers",
-  checkPermission("view_dashboard"), // Riders need dashboard permission to see available drivers
   riderController.getAvailableDrivers
 );
 

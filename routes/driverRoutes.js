@@ -27,6 +27,12 @@ router.get(
   driverController.getDashboard
 );
 
+// View past rides
+router.get(
+  "/rides",
+  driverController.getRideHistory
+);
+
 // Driver profile management
 router.get(
   "/profile",
@@ -145,6 +151,46 @@ router.get(
   "/stats",
   checkPermission("view_profile"),
   driverController.getStats
+);
+
+// Ride request management - driver accepts/rejects ride requests
+const rideController = require("../controllers/rideController");
+
+// Accept ride request
+router.post(
+  "/ride-requests/:rideId/respond",
+  parseFormData,
+  checkPermission("accept_ride"),
+  async (req, res) => {
+    const { action, reason } = req.body;
+    
+    if (action === "accept") {
+      return rideController.acceptRide(req, res);
+    } else if (action === "reject") {
+      return rideController.rejectRide(req, res);
+    } else {
+      return require("../utils/responseHelper").sendError(
+        res,
+        "Invalid action. Must be 'accept' or 'reject'",
+        400
+      );
+    }
+  }
+);
+
+// Alternative: separate accept/reject endpoints
+router.put(
+  "/ride-requests/:rideId/accept",
+  parseFormData,
+  checkPermission("accept_ride"),
+  rideController.acceptRide
+);
+
+router.put(
+  "/ride-requests/:rideId/reject",
+  parseFormData,
+  checkPermission("reject_ride"),
+  rideController.rejectRide
 );
 
 // Driver management - for admins with permissions

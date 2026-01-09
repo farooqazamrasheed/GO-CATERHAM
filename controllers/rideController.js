@@ -368,20 +368,67 @@ exports.getFareEstimate = async (req, res) => {
 exports.bookRide = async (req, res) => {
   try {
     // Debug logging
-    console.log("Book ride request body:", req.body);
-    console.log("Book ride request headers:", req.headers);
+    console.log("\n=== BOOK RIDE REQUEST DEBUG ===");
+    console.log("Request body:", JSON.stringify(req.body, null, 2));
+    console.log("Request query:", JSON.stringify(req.query, null, 2));
+    console.log("Request params:", JSON.stringify(req.params, null, 2));
+    console.log("Content-Type:", req.headers['content-type']);
+    console.log("Body keys:", Object.keys(req.body || {}));
+    console.log("Body type:", typeof req.body);
+    console.log("Is body empty?", Object.keys(req.body || {}).length === 0);
+    console.log("================================\n");
 
     // Check if req.body exists and is an object
     if (!req.body || typeof req.body !== "object") {
-      console.error("Invalid request body:", req.body);
+      console.error("❌ ERROR: Invalid request body:", req.body);
       return sendError(res, "Invalid request body format", 400);
     }
+    
+    console.log("✅ Request body is valid object");
 
     // Handle form-data fields (convert strings to appropriate types)
-    const estimateId = req.body.estimateId;
-    const paymentMethod = req.body.paymentMethod || "wallet";
-    const scheduledTime = req.body.scheduledTime; // Optional: for future bookings
-    const specialInstructions = req.body.specialInstructions; // Optional
+    // Check both req.body and req.query as frontend might send differently
+    const estimateId = req.body.estimateId || req.query.estimateId;
+    const paymentMethod = req.body.paymentMethod || req.query.paymentMethod || "wallet";
+    const scheduledTime = req.body.scheduledTime || req.query.scheduledTime; // Optional: for future bookings
+    const specialInstructions = req.body.specialInstructions || req.query.specialInstructions; // Optional
+
+    // Extract location data from request (may be sent along with or without estimateId)
+    // Check both req.body and req.query, and support both flat and nested structures
+    // Frontend might send: {pickupLat, pickupLng} OR {pickup: {lat, lng, latitude, longitude}}
+    const pickupLat = req.body.pickupLat || req.query.pickupLat || 
+                      req.body.pickup?.lat || req.body.pickup?.latitude;
+    const pickupLng = req.body.pickupLng || req.query.pickupLng || 
+                      req.body.pickup?.lng || req.body.pickup?.longitude;
+    const pickupAddress = req.body.pickupAddress || req.query.pickupAddress || 
+                         req.body.pickup?.address;
+    const dropoffLat = req.body.dropoffLat || req.query.dropoffLat || 
+                       req.body.dropoff?.lat || req.body.dropoff?.latitude ||
+                       req.body.destination?.lat || req.body.destination?.latitude;
+    const dropoffLng = req.body.dropoffLng || req.query.dropoffLng || 
+                       req.body.dropoff?.lng || req.body.dropoff?.longitude ||
+                       req.body.destination?.lng || req.body.destination?.longitude;
+    const dropoffAddress = req.body.dropoffAddress || req.query.dropoffAddress || 
+                          req.body.dropoff?.address ||
+                          req.body.destination?.address;
+    const vehicleType = req.body.vehicleType || req.query.vehicleType;
+
+    console.log("Extracted values:", {
+      estimateId,
+      paymentMethod,
+      pickupLat,
+      pickupLng,
+      pickupAddress,
+      dropoffLat,
+      dropoffLng,
+      dropoffAddress,
+      vehicleType,
+    });
+    
+    console.log("Raw pickup object:", req.body.pickup);
+    console.log("Raw dropoff object:", req.body.dropoff);
+    console.log("Raw destination object:", req.body.destination);
+    console.log("All body keys:", Object.keys(req.body));
 
     // Validate estimate ID if provided
     let fareEstimate = null;
@@ -394,17 +441,91 @@ exports.bookRide = async (req, res) => {
       });
 
       if (!fareEstimate) {
-        return sendError(res, "Invalid or expired fare estimate", 400);
+        console.log(`⚠️ Fare estimate not found for estimateId: ${estimateId}`);
+        // If estimate not found but location data is provided, we'll create one on the fly
+        // Don't return error yet - check if location data is available
+      } else {
+        console.log(`✅ Found valid fare estimate: ${estimateId}`);
       }
     }
 
-    // For immediate bookings, require valid estimate
+    // For immediate bookings without valid estimate, create one on the fly from location data
     if (!scheduledTime && !fareEstimate) {
-      return sendError(
-        res,
-        "Fare estimate is required for immediate bookings",
-        400
+      console.log("⚠️ No valid fare estimate, checking for location data...");
+      
+      if (
+        !pickupLat ||
+        !pickupLng ||
+        !pickupAddress ||
+        !dropoffLat ||
+        !dropoffLng ||
+        !dropoffAddress ||
+        !vehicleType
+      ) {
+        console.log("❌ ERROR: Missing location data:", {
+          pickupLat: pickupLat || "MISSING",
+          pickupLng: pickupLng || "MISSING",
+          pickupAddress: pickupAddress || "MISSING",
+          dropoffLat: dropoffLat || "MISSING",
+          dropoffLng: dropoffLng || "MISSING",
+          dropoffAddress: dropoffAddress || "MISSING",
+          vehicleType: vehicleType || "MISSING",
+        });
+        console.log("❌ RETURNING 400 ERROR - This is where the error is coming from!");
+        return sendError(
+          res,
+          "Either estimateId or complete location details (pickup, dropoff, vehicleType) are required for immediate bookings",
+          400
+        );
+      }
+      
+      console.log("✅ All location data present, proceeding with on-the-fly calculation");
+
+      // Convert to numbers
+      const pickupLatNum = parseFloat(pickupLat);
+      const pickupLngNum = parseFloat(pickupLng);
+      const dropoffLatNum = parseFloat(dropoffLat);
+      const dropoffLngNum = parseFloat(dropoffLng);
+
+      // Validate coordinates
+      if (
+        isNaN(pickupLatNum) ||
+        isNaN(pickupLngNum) ||
+        isNaN(dropoffLatNum) ||
+        isNaN(dropoffLngNum)
+      ) {
+        return sendError(res, "Invalid coordinates provided", 400);
+      }
+
+      // Calculate fare on the fly
+      const fareCalculation = calculateFare(
+        pickupLatNum,
+        pickupLngNum,
+        dropoffLatNum,
+        dropoffLngNum,
+        vehicleType
       );
+
+      // Create temporary fare estimate object (not saved to DB for immediate use)
+      fareEstimate = {
+        pickup: {
+          lat: pickupLat,
+          lng: pickupLng,
+          address: pickupAddress,
+        },
+        dropoff: {
+          lat: dropoffLat,
+          lng: dropoffLng,
+          address: dropoffAddress,
+        },
+        vehicleType,
+        distance: fareCalculation.distance,
+        duration: fareCalculation.duration,
+        fareBreakdown: fareCalculation.fareBreakdown,
+        currency: fareCalculation.currency,
+      };
+
+      console.log("Created on-the-fly fare estimate for immediate booking:", fareEstimate);
     }
 
     // Validate scheduled time if provided
@@ -446,9 +567,11 @@ exports.bookRide = async (req, res) => {
       rideData.estimatedDistance = fareEstimate.distance.miles;
       rideData.estimatedDuration = fareEstimate.duration.minutes;
 
-      // Mark estimate as used
-      fareEstimate.isUsed = true;
-      await fareEstimate.save();
+      // Mark estimate as used (only if it's a database document)
+      if (fareEstimate.save) {
+        fareEstimate.isUsed = true;
+        await fareEstimate.save();
+      }
     }
 
     const ride = await Ride.create(rideData);
@@ -495,10 +618,19 @@ exports.bookRide = async (req, res) => {
         );
 
         // Send ride request notifications to all available drivers
+        // First, populate the ride with rider information for complete notification data
+        await ride.populate('rider', 'fullName phone profilePicture');
+        
         availableDrivers.forEach((driverInfo) => {
+          // Pass the complete ride object with rider info
           socketService.notifyRideRequest(
             driverInfo.driver._id.toString(),
-            ride
+            {
+              ...ride.toObject(),
+              riderName: ride.rider?.fullName || 'Unknown Rider',
+              distance: driverInfo.distance,
+              eta: driverInfo.eta
+            }
           );
 
           // Send real-time dashboard update for nearby ride requests
