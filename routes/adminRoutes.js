@@ -46,8 +46,8 @@ router.put(
 );
 router.put(
   "/driver/:driverId/document/:documentType/verify",
-  checkPermission("approve_driver"),
-  auditLoggers.approveDriver, // Reuse existing logger
+  checkPermission("verify_documents"),
+  auditLoggers.approveDriver, // Reuse existing logger for document verification
   adminController.verifyDocument
 );
 
