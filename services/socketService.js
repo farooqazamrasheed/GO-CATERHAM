@@ -1563,7 +1563,7 @@ class SocketService {
       };
 
       this.notifyUser(riderId, "ride_completed", payload);
-      console.log(Ride completed notification sent to rider ${riderId}: ride ${payload.rideId});
+      console.log(`Ride completed notification sent to rider ${riderId}: ride ${payload.rideId}`);
     }
   }
 
@@ -1590,7 +1590,7 @@ class SocketService {
       // Also send to user's personal room
       this.notifyUser(riderId, "reward_earned", payload);
 
-      console.log(Reward earned notification sent to rider ${riderId}: ${payload.points} points);
+      console.log(`Reward earned notification sent to rider ${riderId}: ${payload.points} points`);
     }
   }
   notifyRideHistoryUpdate(riderId, historyUpdate) {
