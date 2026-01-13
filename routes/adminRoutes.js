@@ -50,6 +50,12 @@ router.put(
   auditLoggers.approveDriver, // Reuse existing logger for document verification
   adminController.verifyDocument
 );
+router.post(
+  "/driver/:driverId/message",
+  parseFormData,
+  checkPermission("manage_drivers"),
+  adminController.sendMessageToDriver
+);
 
 // Active status history - must come before :driverId routes
 router.get(

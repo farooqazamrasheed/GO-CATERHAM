@@ -327,6 +327,106 @@ exports.rejectDriverCustom = async (req, res, next) => {
   }
 };
 
+// Send message to driver (for document status notification)
+exports.sendMessageToDriver = async (req, res, next) => {
+  try {
+    const { driverId } = req.params;
+    const { message } = req.body;
+
+    if (!message || message.trim() === "") {
+      return sendError(res, "Message is required", 400);
+    }
+
+    // Find driver
+    let driver = await Driver.findById(driverId);
+    if (!driver) {
+      driver = await Driver.findOne({ user: driverId });
+    }
+
+    if (!driver) {
+      return sendError(res, "Driver not found", 404);
+    }
+
+    // Get user for notifications
+    const user = await User.findById(driver.user);
+    if (!user) {
+      return sendError(res, "Driver user not found", 404);
+    }
+
+    // Get document verification status
+    const requiredDocuments = [
+      "drivingLicenseFront",
+      "drivingLicenseBack",
+      "cnicFront",
+      "cnicBack",
+      "vehicleRegistration",
+      "insuranceCertificate",
+      "vehiclePhotoFront",
+      "vehiclePhotoSide",
+    ];
+
+    const verifiedDocs = requiredDocuments.filter(
+      (doc) => driver.documents && driver.documents[doc] && driver.documents[doc].verified
+    );
+    const unverifiedDocs = requiredDocuments.filter(
+      (doc) => driver.documents && driver.documents[doc] && driver.documents[doc].url && !driver.documents[doc].verified
+    );
+
+    // Send email notification
+    try {
+      await notificationService.sendAdminMessageToDriver(user, message);
+    } catch (notificationError) {
+      console.error("Failed to send email notification:", notificationError.message);
+    }
+
+    // Send WebSocket real-time notification
+    socketService.notifyUser(driver.user.toString(), "admin_message", {
+      driverId: driver._id,
+      message: message,
+      documentStatus: {
+        verified: verifiedDocs.length,
+        unverified: unverifiedDocs.length,
+        total: requiredDocuments.length,
+        verifiedDocuments: verifiedDocs,
+        unverifiedDocuments: unverifiedDocs,
+      },
+      sentBy: req.user.fullName || req.user.id,
+      timestamp: new Date(),
+    });
+
+    // Update driver dashboard
+    socketService.notifyDriverDashboardUpdate(driver._id.toString(), {
+      adminMessage: message,
+      documentStatus: {
+        verified: verifiedDocs.length,
+        unverified: unverifiedDocs.length,
+        total: requiredDocuments.length,
+      },
+    }, "admin_message");
+
+    sendSuccess(
+      res,
+      {
+        driverId: driver._id,
+        driverName: user.fullName,
+        message: message,
+        documentStatus: {
+          verified: verifiedDocs.length,
+          unverified: unverifiedDocs.length,
+          total: requiredDocuments.length,
+          verifiedDocuments: verifiedDocs,
+          unverifiedDocuments: unverifiedDocs,
+        },
+        sentAt: new Date(),
+      },
+      "Message sent to driver successfully",
+      200
+    );
+  } catch (err) {
+    next(err);
+  }
+};
+
 // Verify individual document
 exports.verifyDocument = async (req, res, next) => {
   try {

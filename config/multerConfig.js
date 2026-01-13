@@ -2,6 +2,22 @@ const multer = require("multer");
 const path = require("path");
 const fs = require("fs");
 
+// Check if Cloudinary is configured
+const useCloudinary = !!(
+  process.env.CLOUDINARY_CLOUD_NAME &&
+  process.env.CLOUDINARY_API_KEY &&
+  process.env.CLOUDINARY_API_SECRET
+);
+
+// Cloudinary configuration (only loaded if env vars are set)
+let cloudinaryConfig = null;
+if (useCloudinary) {
+  cloudinaryConfig = require("./cloudinaryConfig");
+  console.log("✅ Using Cloudinary for file storage");
+} else {
+  console.log("📁 Using local disk storage for files");
+}
+
 /**
  * Creates a multer storage configuration
  * @param {string} uploadDir - The upload directory relative to the project root
@@ -81,65 +97,113 @@ const createUploadConfig = (options) => {
 // Pre-configured upload configurations
 
 // Document uploads (multiple fields for driver documents)
-const documentUpload = createUploadConfig({
-  uploadDir: "documents",
-  allowedTypes: ["image/jpeg", "image/jpg", "image/png", "application/pdf"],
-  errorMessage: "Invalid file type. Only JPEG, PNG, and PDF files are allowed.",
-});
+let documentUpload;
+if (useCloudinary) {
+  documentUpload = multer({
+    storage: cloudinaryConfig.documentStorage,
+    fileFilter: createFileFilter(
+      ["image/jpeg", "image/jpg", "image/png", "application/pdf"],
+      "Invalid file type. Only JPEG, PNG, and PDF files are allowed."
+    ),
+    limits: { fileSize: 5 * 1024 * 1024 },
+  });
+} else {
+  documentUpload = createUploadConfig({
+    uploadDir: "documents",
+    allowedTypes: ["image/jpeg", "image/jpg", "image/png", "application/pdf"],
+    errorMessage: "Invalid file type. Only JPEG, PNG, and PDF files are allowed.",
+  });
+}
 
 // Profile picture uploads (single field)
-const profilePictureUpload = createUploadConfig({
-  uploadDir: "profiles",
-  allowedTypes: ["image/jpeg", "image/jpg", "image/png"],
-  errorMessage: "Only JPEG and PNG files are allowed",
-  filenameGenerator: (req, file, cb) => {
-    const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1e9);
-    cb(
-      null,
-      "profile-" +
-        req.user.id +
-        "-" +
-        uniqueSuffix +
-        path.extname(file.originalname)
-    );
-  },
-});
+let profilePictureUpload;
+if (useCloudinary) {
+  profilePictureUpload = multer({
+    storage: cloudinaryConfig.profileStorage,
+    fileFilter: createFileFilter(
+      ["image/jpeg", "image/jpg", "image/png"],
+      "Only JPEG and PNG files are allowed"
+    ),
+    limits: { fileSize: 5 * 1024 * 1024 },
+  });
+} else {
+  profilePictureUpload = createUploadConfig({
+    uploadDir: "profiles",
+    allowedTypes: ["image/jpeg", "image/jpg", "image/png"],
+    errorMessage: "Only JPEG and PNG files are allowed",
+    filenameGenerator: (req, file, cb) => {
+      const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1e9);
+      cb(
+        null,
+        "profile-" +
+          req.user.id +
+          "-" +
+          uniqueSuffix +
+          path.extname(file.originalname)
+      );
+    },
+  });
+}
 
 // Driver photo uploads (single field)
-const driverPhotoUpload = createUploadConfig({
-  uploadDir: "drivers",
-  allowedTypes: ["image/jpeg", "image/jpg", "image/png"],
-  errorMessage: "Invalid file type. Only JPEG, JPG, and PNG are allowed",
-  filenameGenerator: (req, file, cb) => {
-    const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1e9);
-    cb(
-      null,
-      "driver-" +
-        req.user.id +
-        "-" +
-        uniqueSuffix +
-        path.extname(file.originalname)
-    );
-  },
-});
+let driverPhotoUpload;
+if (useCloudinary) {
+  driverPhotoUpload = multer({
+    storage: cloudinaryConfig.profileStorage,
+    fileFilter: createFileFilter(
+      ["image/jpeg", "image/jpg", "image/png"],
+      "Invalid file type. Only JPEG, JPG, and PNG are allowed"
+    ),
+    limits: { fileSize: 5 * 1024 * 1024 },
+  });
+} else {
+  driverPhotoUpload = createUploadConfig({
+    uploadDir: "drivers",
+    allowedTypes: ["image/jpeg", "image/jpg", "image/png"],
+    errorMessage: "Invalid file type. Only JPEG, JPG, and PNG are allowed",
+    filenameGenerator: (req, file, cb) => {
+      const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1e9);
+      cb(
+        null,
+        "driver-" +
+          req.user.id +
+          "-" +
+          uniqueSuffix +
+          path.extname(file.originalname)
+      );
+    },
+  });
+}
 
 // Rider photo uploads (single field)
-const riderPhotoUpload = createUploadConfig({
-  uploadDir: "riders",
-  allowedTypes: ["image/jpeg", "image/jpg", "image/png"],
-  errorMessage: "Invalid file type. Only JPEG, JPG, and PNG are allowed",
-  filenameGenerator: (req, file, cb) => {
-    const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1e9);
-    cb(
-      null,
-      "rider-" +
-        req.user.id +
-        "-" +
-        uniqueSuffix +
-        path.extname(file.originalname)
-    );
-  },
-});
+let riderPhotoUpload;
+if (useCloudinary) {
+  riderPhotoUpload = multer({
+    storage: cloudinaryConfig.profileStorage,
+    fileFilter: createFileFilter(
+      ["image/jpeg", "image/jpg", "image/png"],
+      "Invalid file type. Only JPEG, JPG, and PNG are allowed"
+    ),
+    limits: { fileSize: 5 * 1024 * 1024 },
+  });
+} else {
+  riderPhotoUpload = createUploadConfig({
+    uploadDir: "riders",
+    allowedTypes: ["image/jpeg", "image/jpg", "image/png"],
+    errorMessage: "Invalid file type. Only JPEG, JPG, and PNG are allowed",
+    filenameGenerator: (req, file, cb) => {
+      const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1e9);
+      cb(
+        null,
+        "rider-" +
+          req.user.id +
+          "-" +
+          uniqueSuffix +
+          path.extname(file.originalname)
+      );
+    },
+  });
+}
 
 // Document fields configuration for driver documents
 const documentFields = [
