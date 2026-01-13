@@ -1,4 +1,4 @@
-﻿const express = require("express");
+const express = require("express");
 const router = express.Router();
 const multer = require("multer");
 
@@ -49,12 +49,6 @@ router.put(
   checkPermission("verify_documents"),
   auditLoggers.approveDriver, // Reuse existing logger for document verification
   adminController.verifyDocument
-);
-router.post(
-  "/driver/:driverId/message",
-  parseFormData,
-  checkPermission("manage_drivers"),
-  adminController.sendMessageToDriver
 );
 
 // Active status history - must come before :driverId routes
@@ -253,79 +247,6 @@ router.get(
   "/active-history",
   checkRole("admin", "superadmin"),
   adminController.getAllActiveHistory
-);
-
-
-// ==================== ANALYTICS ROUTES ====================
-
-/**
- * @route   GET /api/v1/admin/analytics
- * @desc    Get comprehensive analytics dashboard
- * @access  Admin, Superadmin, Subadmin
- */
-router.get(
-  "/analytics",
-  checkRole("admin", "superadmin", "subadmin"),
-  adminController.getAnalyticsDashboard
-);
-
-/**
- * @route   GET /api/v1/admin/analytics/revenue
- * @desc    Get revenue analytics with filters
- * @query   startDate, endDate, groupBy (day|week|month|year)
- * @access  Admin, Superadmin, Subadmin
- */
-router.get(
-  "/analytics/revenue",
-  checkRole("admin", "superadmin", "subadmin"),
-  adminController.getRevenueAnalytics
-);
-
-/**
- * @route   GET /api/v1/admin/analytics/rides
- * @desc    Get ride statistics with filters
- * @query   startDate, endDate
- * @access  Admin, Superadmin, Subadmin
- */
-router.get(
-  "/analytics/rides",
-  checkRole("admin", "superadmin", "subadmin"),
-  adminController.getRideStatistics
-);
-
-/**
- * @route   GET /api/v1/admin/analytics/top-drivers
- * @desc    Get top performing drivers
- * @query   limit (default 10), sortBy (rides|revenue|rating|earnings), startDate, endDate
- * @access  Admin, Superadmin, Subadmin
- */
-router.get(
-  "/analytics/top-drivers",
-  checkRole("admin", "superadmin", "subadmin"),
-  adminController.getTopDrivers
-);
-
-/**
- * @route   GET /api/v1/admin/analytics/top-riders
- * @desc    Get top riders by activity
- * @query   limit (default 10), sortBy (rides|spent|rating), startDate, endDate
- * @access  Admin, Superadmin, Subadmin
- */
-router.get(
-  "/analytics/top-riders",
-  checkRole("admin", "superadmin", "subadmin"),
-  adminController.getTopRiders
-);
-
-/**
- * @route   GET /api/v1/admin/analytics/realtime
- * @desc    Get real-time analytics summary (lightweight for frequent polling/websocket)
- * @access  Admin, Superadmin, Subadmin
- */
-router.get(
-  "/analytics/realtime",
-  checkRole("admin", "superadmin", "subadmin"),
-  adminController.getRealTimeAnalytics
 );
 
 module.exports = router;

@@ -1,4 +1,4 @@
-﻿const User = require("../models/User");
+const User = require("../models/User");
 
 // Helper functions for distance and ETA calculations
 function calculateDistance(lat1, lon1, lat2, lon2) {
@@ -52,7 +52,7 @@ class SocketService {
     this.io.on("connection", async (socket) => {
       const timestamp = new Date().toISOString();
       console.log(`\n${'='.repeat(60)}`);
-      console.log(`ðŸ”Œ [WEBSOCKET CONNECTED]`);
+      console.log(`🔌 [WEBSOCKET CONNECTED]`);
       console.log(`   Socket ID: ${socket.id}`);
       console.log(`   Time: ${timestamp}`);
       console.log(`   Transport: ${socket.conn.transport.name}`);
@@ -62,7 +62,7 @@ class SocketService {
         // Authenticate user from token (Socket.IO v3+ standard: auth object)
         const token = socket.handshake.auth.token;
         if (!token) {
-          console.log(`   âŒ Auth Failed: No token provided`);
+          console.log(`   ❌ Auth Failed: No token provided`);
           console.log(`   Debug - socket.handshake.auth:`, socket.handshake.auth);
           console.log(`   Debug - socket.handshake.query:`, socket.handshake.query);
           console.log(`${'='.repeat(60)}\n`);
@@ -74,7 +74,7 @@ class SocketService {
           return;
         }
         
-        console.log(`   âœ… Token received, length: ${token.length}`);
+        console.log(`   ✅ Token received, length: ${token.length}`);
 
         const { verifyToken } = require("../utils/jwt");
         const decoded = verifyToken(token);
@@ -103,7 +103,7 @@ class SocketService {
           transport: socket.conn.transport.name
         });
 
-        console.log(`   âœ… Auth Success`);
+        console.log(`   ✅ Auth Success`);
         console.log(`   User ID: ${userId}`);
         console.log(`   User Name: ${userName}`);
         console.log(`   User Role: ${userRole}`);
@@ -119,7 +119,7 @@ class SocketService {
         });
 
       } catch (error) {
-        console.log(`   âŒ Auth Failed: ${error.message}`);
+        console.log(`   ❌ Auth Failed: ${error.message}`);
         console.log(`${'='.repeat(60)}\n`);
         socket.emit("connection_error", { 
           message: "Authentication failed: " + error.message,
@@ -139,7 +139,7 @@ class SocketService {
 
       // Handle reconnection attempt
       socket.on("reconnect_attempt", () => {
-        console.log(`ðŸ”„ [WEBSOCKET RECONNECTING] User: ${socket.userName} (${socket.userId})`);
+        console.log(`🔄 [WEBSOCKET RECONNECTING] User: ${socket.userName} (${socket.userId})`);
       });
 
       //-----------------------------------------------------------------
@@ -154,7 +154,7 @@ class SocketService {
         const { userId, userType, latitude, longitude } = data;
         if (userId && userType === "driver") {
           socket.join(`dashboard_${userId}`);
-          console.log(`ðŸ“Š [DASHBOARD SUBSCRIBE] Driver: ${socket.userName || userId} (${userType})`);
+          console.log(`📊 [DASHBOARD SUBSCRIBE] Driver: ${socket.userName || userId} (${userType})`);
           console.log(`   Location: ${latitude ? `(${latitude}, ${longitude})` : 'Not provided'}`);
 
           // Send initial dashboard data
@@ -166,7 +166,7 @@ class SocketService {
           }
         } else if (userId && userType === "rider") {
           socket.join(`rider_dashboard_${userId}`);
-          console.log(`ðŸ“Š [DASHBOARD SUBSCRIBE] Rider: ${socket.userName || userId} (${userType})`);
+          console.log(`📊 [DASHBOARD SUBSCRIBE] Rider: ${socket.userName || userId} (${userType})`);
           console.log(`   Location: ${latitude ? `(${latitude}, ${longitude})` : 'Not provided'}`);
 
           // Send initial rider dashboard data
@@ -206,7 +206,7 @@ class SocketService {
       socket.on("unsubscribe_dashboard", (userId) => {
         socket.leave(`dashboard_${userId}`);
         socket.leave(`rider_dashboard_${userId}`);
-        console.log(`ðŸ“Š [DASHBOARD UNSUBSCRIBE] User: ${socket.userName || userId}`);
+        console.log(`📊 [DASHBOARD UNSUBSCRIBE] User: ${socket.userName || userId}`);
       });
 
       // Handle ride-related events
@@ -270,36 +270,6 @@ class SocketService {
         console.log(`User ${userId} unsubscribed from rewards updates`);
       });
 
-
-      // Analytics subscription (for admins)
-      socket.on("subscribe_analytics", () => {
-        if (socket.userRole === "admin" || socket.userRole === "superadmin") {
-          socket.join("analytics_room");
-          console.log(`Admin ${socket.userId} (${socket.userName}) subscribed to analytics updates`);
-          socket.emit("analytics_subscribed", {
-            message: "Successfully subscribed to analytics updates",
-            timestamp: new Date()
-          });
-          // Start analytics broadcast if not already running
-          if (!this.analyticsInterval) {
-            this.startAnalyticsBroadcast();
-          }
-        } else {
-          socket.emit("analytics_error", {
-            message: "Unauthorized: Only admins can subscribe to analytics",
-            timestamp: new Date()
-          });
-        }
-      });
-
-      socket.on("unsubscribe_analytics", () => {
-        socket.leave("analytics_room");
-        console.log(`User ${socket.userId} unsubscribed from analytics updates`);
-        socket.emit("analytics_unsubscribed", {
-          message: "Successfully unsubscribed from analytics updates",
-          timestamp: new Date()
-        });
-      });
       socket.on("disconnect", (reason) => {
         const timestamp = new Date().toISOString();
         const connectedInfo = this.connectedUsers?.get(socket.id);
@@ -311,7 +281,7 @@ class SocketService {
         this.connectedUsers?.delete(socket.id);
 
         console.log(`\n${'='.repeat(60)}`);
-        console.log(`ðŸ”Œ [WEBSOCKET DISCONNECTED]`);
+        console.log(`🔌 [WEBSOCKET DISCONNECTED]`);
         console.log(`   Socket ID: ${socket.id}`);
         console.log(`   User ID: ${socket.userId || 'N/A'}`);
         console.log(`   User Name: ${socket.userName || 'N/A'}`);
@@ -323,11 +293,11 @@ class SocketService {
         
         // Log disconnection reason explanation
         const reasonExplanations = {
-          'io server disconnect': 'âš ï¸  Server forced disconnect',
-          'io client disconnect': 'ðŸ‘‹ Client initiated disconnect',
-          'ping timeout': 'â° Client stopped responding to pings',
-          'transport close': 'ðŸš« Connection was closed',
-          'transport error': 'âŒ Transport error occurred'
+          'io server disconnect': '⚠️  Server forced disconnect',
+          'io client disconnect': '👋 Client initiated disconnect',
+          'ping timeout': '⏰ Client stopped responding to pings',
+          'transport close': '🚫 Connection was closed',
+          'transport error': '❌ Transport error occurred'
         };
         if (reasonExplanations[reason]) {
           console.log(`   Explanation: ${reasonExplanations[reason]}`);
@@ -337,7 +307,7 @@ class SocketService {
 
       // Handle connection errors
       socket.on("error", (error) => {
-        console.log(`\nâš ï¸  [WEBSOCKET ERROR]`);
+        console.log(`\n⚠️  [WEBSOCKET ERROR]`);
         console.log(`   Socket ID: ${socket.id}`);
         console.log(`   User: ${socket.userName || socket.userId || 'Unknown'}`);
         console.log(`   Error: ${error.message}`);
@@ -501,7 +471,7 @@ class SocketService {
    */
   logConnectionStatus() {
     const stats = this.getConnectionStats();
-    console.log(`\nðŸ“¡ [WEBSOCKET STATUS]`);
+    console.log(`\n📡 [WEBSOCKET STATUS]`);
     console.log(`   Total Connected: ${stats.totalConnected}`);
     if (stats.users.length > 0) {
       console.log(`   Connected Users:`);
@@ -788,7 +758,7 @@ class SocketService {
           totalSaved: {
             amount: totalSaved,
             currency: "GBP",
-            formatted: `Â£${totalSaved.toFixed(2)}`,
+            formatted: `£${totalSaved.toFixed(2)}`,
           },
           rating: rider.rating || 5.0,
         },
@@ -2662,218 +2632,6 @@ class SocketService {
       settings: settingsData,
       timestamp: new Date(),
     });
-  }
-
-  // ==================== ANALYTICS REAL-TIME UPDATES ====================
-
-  /**
-   * Subscribe admin to analytics updates room
-   * @param {string} adminId - Admin user ID
-   */
-  subscribeToAnalytics(adminId) {
-    if (this.io) {
-      // Find all sockets for this admin and join analytics room
-      const adminSockets = this.getSocketsByUserId(adminId);
-      adminSockets.forEach(socketId => {
-        const socket = this.io.sockets.sockets.get(socketId);
-        if (socket) {
-          socket.join("analytics_room");
-          console.log(`Admin ${adminId} subscribed to analytics updates`);
-        }
-      });
-    }
-  }
-
-  /**
-   * Unsubscribe admin from analytics updates room
-   * @param {string} adminId - Admin user ID
-   */
-  unsubscribeFromAnalytics(adminId) {
-    if (this.io) {
-      const adminSockets = this.getSocketsByUserId(adminId);
-      adminSockets.forEach(socketId => {
-        const socket = this.io.sockets.sockets.get(socketId);
-        if (socket) {
-          socket.leave("analytics_room");
-          console.log(`Admin ${adminId} unsubscribed from analytics updates`);
-        }
-      });
-    }
-  }
-
-  /**
-   * Broadcast real-time analytics update to all subscribed admins
-   * @param {Object} analyticsData - Analytics data to broadcast
-   */
-  broadcastAnalyticsUpdate(analyticsData) {
-    if (this.io) {
-      this.io.to("analytics_room").emit("analytics_update", {
-        data: analyticsData,
-        timestamp: new Date()
-      });
-      console.log("Analytics update broadcasted to admin room");
-    }
-  }
-
-  /**
-   * Notify admins about new ride created
-   * @param {Object} rideData - New ride information
-   */
-  notifyAdminsNewRide(rideData) {
-    if (this.io) {
-      this.io.to("analytics_room").emit("new_ride_created", {
-        ride: rideData,
-        timestamp: new Date()
-      });
-      console.log("New ride notification sent to admins");
-    }
-  }
-
-  /**
-   * Notify admins about ride status change
-   * @param {Object} rideData - Updated ride information
-   */
-  notifyAdminsRideStatusChange(rideData) {
-    if (this.io) {
-      this.io.to("analytics_room").emit("ride_status_changed", {
-        ride: rideData,
-        timestamp: new Date()
-      });
-      console.log(`Ride status change notification sent to admins: ${rideData.status}`);
-    }
-  }
-
-  /**
-   * Notify admins about driver status change (online/offline/busy)
-   * @param {Object} driverData - Driver information with new status
-   */
-  notifyAdminsDriverStatusChange(driverData) {
-    if (this.io) {
-      this.io.to("analytics_room").emit("driver_status_changed", {
-        driver: driverData,
-        timestamp: new Date()
-      });
-      console.log(`Driver status change notification sent to admins: ${driverData.status}`);
-    }
-  }
-
-  /**
-   * Notify admins about rider status change (online/offline)
-   * @param {Object} riderData - Rider information with new status
-   */
-  notifyAdminsRiderStatusChange(riderData) {
-    if (this.io) {
-      this.io.to("analytics_room").emit("rider_status_changed", {
-        rider: riderData,
-        timestamp: new Date()
-      });
-      console.log(`Rider status change notification sent to admins: ${riderData.status}`);
-    }
-  }
-
-  /**
-   * Notify admins about completed ride (for revenue updates)
-   * @param {Object} rideData - Completed ride with fare information
-   */
-  notifyAdminsRideCompleted(rideData) {
-    if (this.io) {
-      this.io.to("analytics_room").emit("ride_completed", {
-        ride: {
-          _id: rideData._id,
-          fare: rideData.fare,
-          platformCommission: rideData.platformCommission,
-          driverEarnings: rideData.driverEarnings,
-          tips: rideData.tips,
-          paymentMethod: rideData.paymentMethod
-        },
-        timestamp: new Date()
-      });
-      console.log("Ride completed notification sent to admins");
-    }
-  }
-
-  /**
-   * Get helper to find sockets by user ID
-   * @param {string} userId - User ID
-   * @returns {Array} Array of socket IDs
-   */
-  getSocketsByUserId(userId) {
-    const socketIds = [];
-    this.connectedUsers.forEach((userData, socketId) => {
-      if (userData.userId === userId) {
-        socketIds.push(socketId);
-      }
-    });
-    return socketIds;
-  }
-
-  /**
-   * Start periodic analytics broadcast (every 30 seconds)
-   * This provides automatic updates to all subscribed admins
-   */
-  startAnalyticsBroadcast() {
-    if (this.analyticsInterval) {
-      clearInterval(this.analyticsInterval);
-    }
-    
-    this.analyticsInterval = setInterval(async () => {
-      try {
-        const Rider = require("../models/Rider");
-        const Driver = require("../models/Driver");
-        const Ride = require("../models/Ride");
-
-        const [activeRiders, activeDrivers, ongoingRides, pendingRides, todayStats] = await Promise.all([
-          Rider.countDocuments({ status: "online", activeStatus: "active" }),
-          Driver.countDocuments({ status: { $in: ["online", "busy"] }, activeStatus: "active" }),
-          Ride.countDocuments({ status: { $in: ["assigned", "accepted", "in_progress"] } }),
-          Ride.countDocuments({ status: { $in: ["requested", "searching", "scheduled"] } }),
-          Ride.aggregate([
-            {
-              $match: {
-                createdAt: { $gte: new Date(new Date().setHours(0, 0, 0, 0)) }
-              }
-            },
-            {
-              $group: {
-                _id: null,
-                totalRides: { $sum: 1 },
-                completedRides: { $sum: { $cond: [{ $eq: ["$status", "completed"] }, 1, 0] } },
-                revenue: { $sum: { $cond: [{ $eq: ["$status", "completed"] }, "$fare", 0] } }
-              }
-            }
-          ])
-        ]);
-
-        const today = todayStats[0] || { totalRides: 0, completedRides: 0, revenue: 0 };
-
-        this.broadcastAnalyticsUpdate({
-          activeRiders,
-          activeDrivers,
-          ongoingRides,
-          pendingRides,
-          today: {
-            totalRides: today.totalRides,
-            completedRides: today.completedRides,
-            revenue: today.revenue
-          }
-        });
-      } catch (error) {
-        console.error("Error broadcasting analytics:", error);
-      }
-    }, 30000); // Every 30 seconds
-
-    console.log("Analytics broadcast started (every 30 seconds)");
-  }
-
-  /**
-   * Stop periodic analytics broadcast
-   */
-  stopAnalyticsBroadcast() {
-    if (this.analyticsInterval) {
-      clearInterval(this.analyticsInterval);
-      this.analyticsInterval = null;
-      console.log("Analytics broadcast stopped");
-    }
   }
 }
 

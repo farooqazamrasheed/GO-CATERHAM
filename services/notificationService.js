@@ -255,31 +255,6 @@ class NotificationService {
   }
 
   /**
-   * Send admin message to driver
-   * @param {Object} driver - Driver user object
-   * @param {string} message - Custom message from admin
-   */
-  async sendAdminMessageToDriver(driver, message) {
-    const subject = "Message from Admin - GO-CATERHAM";
-    const emailMessage = `
-      Hi ${driver.fullName},
-
-      You have received a message from the GO-CATERHAM admin team:
-
-      ---
-      ${message}
-      ---
-
-      If you have any questions, please contact our support team.
-
-      Best regards,
-      GO-CATERHAM Team
-    `;
-
-    await this.sendEmail(driver.email, subject, emailMessage);
-  }
-
-  /**
    * Send driver approval notification
    * @param {Object} driver - Driver user object
    */
