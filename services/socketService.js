@@ -270,6 +270,32 @@ class SocketService {
         console.log(`User ${userId} unsubscribed from rewards updates`);
       });
 
+      // Analytics subscription for admin real-time updates
+      socket.on("subscribe_analytics", () => {
+        // Only allow admins to subscribe
+        if (socket.userRole === 'admin' || socket.userRole === 'superadmin' || socket.userRole === 'subadmin') {
+          socket.join('admin_analytics');
+          console.log(`📊 [ANALYTICS SUBSCRIBE] Admin: ${socket.userName || socket.userId} (${socket.userRole})`);
+          socket.emit('analytics_subscribed', { 
+            success: true, 
+            message: 'Subscribed to analytics updates',
+            timestamp: new Date()
+          });
+        } else {
+          socket.emit('analytics_subscribed', { 
+            success: false, 
+            message: 'Only admins can subscribe to analytics',
+            timestamp: new Date()
+          });
+        }
+      });
+
+      // Unsubscribe from analytics updates
+      socket.on("unsubscribe_analytics", () => {
+        socket.leave('admin_analytics');
+        console.log(`📊 [ANALYTICS UNSUBSCRIBE] Admin: ${socket.userName || socket.userId}`);
+      });
+
       socket.on("disconnect", (reason) => {
         const timestamp = new Date().toISOString();
         const connectedInfo = this.connectedUsers?.get(socket.id);
@@ -2632,6 +2658,89 @@ class SocketService {
       settings: settingsData,
       timestamp: new Date(),
     });
+  }
+
+  // =============================================
+  // ANALYTICS REAL-TIME UPDATES
+  // =============================================
+
+  /**
+   * Notify all admin subscribers about analytics updates
+   * @param {string} updateType - Type of analytics update (top_drivers, top_riders, general, revenue, rides, realtime)
+   * @param {Object} data - Analytics data
+   */
+  notifyAnalyticsUpdate(updateType, data) {
+    if (this.io) {
+      this.io.to('admin_analytics').emit('analytics_update', {
+        updateType,
+        data,
+        timestamp: new Date()
+      });
+      console.log(`📊 [ANALYTICS UPDATE] Type: ${updateType}`);
+    }
+  }
+
+  /**
+   * Notify about top drivers ranking change
+   * @param {Array} topDrivers - Updated top drivers list
+   */
+  notifyTopDriversUpdate(topDrivers) {
+    this.notifyAnalyticsUpdate('top_drivers', {
+      topDrivers: topDrivers.slice(0, 10),
+      totalDrivers: topDrivers.length
+    });
+  }
+
+  /**
+   * Notify about top riders ranking change
+   * @param {Array} topRiders - Updated top riders list
+   */
+  notifyTopRidersUpdate(topRiders) {
+    this.notifyAnalyticsUpdate('top_riders', {
+      topRiders: topRiders.slice(0, 10),
+      totalRiders: topRiders.length
+    });
+  }
+
+  /**
+   * Notify about real-time analytics changes (ride created, completed, cancelled, etc.)
+   * @param {string} eventType - Type of event (ride_created, ride_completed, ride_cancelled, driver_online, driver_offline)
+   * @param {Object} eventData - Event-specific data
+   */
+  async notifyRealtimeAnalyticsEvent(eventType, eventData) {
+    if (this.io) {
+      // Send specific event to analytics subscribers
+      this.io.to('admin_analytics').emit('analytics_realtime_event', {
+        eventType,
+        data: eventData,
+        timestamp: new Date()
+      });
+
+      // Also trigger a full analytics refresh for dashboard
+      this.io.to('admin_analytics').emit('analytics_refresh_needed', {
+        reason: eventType,
+        timestamp: new Date()
+      });
+
+      console.log(`📊 [ANALYTICS EVENT] ${eventType}`);
+    }
+  }
+
+  /**
+   * Subscribe admin to analytics updates
+   * Called when admin dashboard connects
+   */
+  subscribeToAnalytics(socket) {
+    socket.join('admin_analytics');
+    console.log(`📊 [ANALYTICS SUBSCRIBE] Admin: ${socket.userName || socket.userId}`);
+  }
+
+  /**
+   * Unsubscribe admin from analytics updates
+   */
+  unsubscribeFromAnalytics(socket) {
+    socket.leave('admin_analytics');
+    console.log(`📊 [ANALYTICS UNSUBSCRIBE] Admin: ${socket.userName || socket.userId}`);
   }
 }
 
