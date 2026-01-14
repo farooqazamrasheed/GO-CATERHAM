@@ -372,7 +372,7 @@ exports.bookRide = async (req, res) => {
     console.log("Request body:", JSON.stringify(req.body, null, 2));
     console.log("Request query:", JSON.stringify(req.query, null, 2));
     console.log("Request params:", JSON.stringify(req.params, null, 2));
-    console.log("Content-Type:", req.headers['content-type']);
+    console.log("Content-Type:", req.headers["content-type"]);
     console.log("Body keys:", Object.keys(req.body || {}));
     console.log("Body type:", typeof req.body);
     console.log("Is body empty?", Object.keys(req.body || {}).length === 0);
@@ -383,34 +383,54 @@ exports.bookRide = async (req, res) => {
       console.error("❌ ERROR: Invalid request body:", req.body);
       return sendError(res, "Invalid request body format", 400);
     }
-    
+
     console.log("✅ Request body is valid object");
 
     // Handle form-data fields (convert strings to appropriate types)
     // Check both req.body and req.query as frontend might send differently
     const estimateId = req.body.estimateId || req.query.estimateId;
-    const paymentMethod = req.body.paymentMethod || req.query.paymentMethod || "wallet";
+    const paymentMethod =
+      req.body.paymentMethod || req.query.paymentMethod || "wallet";
     const scheduledTime = req.body.scheduledTime || req.query.scheduledTime; // Optional: for future bookings
-    const specialInstructions = req.body.specialInstructions || req.query.specialInstructions; // Optional
+    const specialInstructions =
+      req.body.specialInstructions || req.query.specialInstructions; // Optional
 
     // Extract location data from request (may be sent along with or without estimateId)
     // Check both req.body and req.query, and support both flat and nested structures
     // Frontend might send: {pickupLat, pickupLng} OR {pickup: {lat, lng, latitude, longitude}}
-    const pickupLat = req.body.pickupLat || req.query.pickupLat || 
-                      req.body.pickup?.lat || req.body.pickup?.latitude;
-    const pickupLng = req.body.pickupLng || req.query.pickupLng || 
-                      req.body.pickup?.lng || req.body.pickup?.longitude;
-    const pickupAddress = req.body.pickupAddress || req.query.pickupAddress || 
-                         req.body.pickup?.address;
-    const dropoffLat = req.body.dropoffLat || req.query.dropoffLat || 
-                       req.body.dropoff?.lat || req.body.dropoff?.latitude ||
-                       req.body.destination?.lat || req.body.destination?.latitude;
-    const dropoffLng = req.body.dropoffLng || req.query.dropoffLng || 
-                       req.body.dropoff?.lng || req.body.dropoff?.longitude ||
-                       req.body.destination?.lng || req.body.destination?.longitude;
-    const dropoffAddress = req.body.dropoffAddress || req.query.dropoffAddress || 
-                          req.body.dropoff?.address ||
-                          req.body.destination?.address;
+    const pickupLat =
+      req.body.pickupLat ||
+      req.query.pickupLat ||
+      req.body.pickup?.lat ||
+      req.body.pickup?.latitude;
+    const pickupLng =
+      req.body.pickupLng ||
+      req.query.pickupLng ||
+      req.body.pickup?.lng ||
+      req.body.pickup?.longitude;
+    const pickupAddress =
+      req.body.pickupAddress ||
+      req.query.pickupAddress ||
+      req.body.pickup?.address;
+    const dropoffLat =
+      req.body.dropoffLat ||
+      req.query.dropoffLat ||
+      req.body.dropoff?.lat ||
+      req.body.dropoff?.latitude ||
+      req.body.destination?.lat ||
+      req.body.destination?.latitude;
+    const dropoffLng =
+      req.body.dropoffLng ||
+      req.query.dropoffLng ||
+      req.body.dropoff?.lng ||
+      req.body.dropoff?.longitude ||
+      req.body.destination?.lng ||
+      req.body.destination?.longitude;
+    const dropoffAddress =
+      req.body.dropoffAddress ||
+      req.query.dropoffAddress ||
+      req.body.dropoff?.address ||
+      req.body.destination?.address;
     const vehicleType = req.body.vehicleType || req.query.vehicleType;
 
     console.log("Extracted values:", {
@@ -424,7 +444,7 @@ exports.bookRide = async (req, res) => {
       dropoffAddress,
       vehicleType,
     });
-    
+
     console.log("Raw pickup object:", req.body.pickup);
     console.log("Raw dropoff object:", req.body.dropoff);
     console.log("Raw destination object:", req.body.destination);
@@ -452,7 +472,7 @@ exports.bookRide = async (req, res) => {
     // For immediate bookings without valid estimate, create one on the fly from location data
     if (!scheduledTime && !fareEstimate) {
       console.log("⚠️ No valid fare estimate, checking for location data...");
-      
+
       if (
         !pickupLat ||
         !pickupLng ||
@@ -471,15 +491,19 @@ exports.bookRide = async (req, res) => {
           dropoffAddress: dropoffAddress || "MISSING",
           vehicleType: vehicleType || "MISSING",
         });
-        console.log("❌ RETURNING 400 ERROR - This is where the error is coming from!");
+        console.log(
+          "❌ RETURNING 400 ERROR - This is where the error is coming from!"
+        );
         return sendError(
           res,
           "Either estimateId or complete location details (pickup, dropoff, vehicleType) are required for immediate bookings",
           400
         );
       }
-      
-      console.log("✅ All location data present, proceeding with on-the-fly calculation");
+
+      console.log(
+        "✅ All location data present, proceeding with on-the-fly calculation"
+      );
 
       // Convert to numbers
       const pickupLatNum = parseFloat(pickupLat);
@@ -525,7 +549,10 @@ exports.bookRide = async (req, res) => {
         currency: fareCalculation.currency,
       };
 
-      console.log("Created on-the-fly fare estimate for immediate booking:", fareEstimate);
+      console.log(
+        "Created on-the-fly fare estimate for immediate booking:",
+        fareEstimate
+      );
     }
 
     // Validate scheduled time if provided
@@ -580,7 +607,7 @@ exports.bookRide = async (req, res) => {
     await socketService.notifyAdminRideUpdate(ride);
 
     // Notify analytics subscribers about new ride (real-time dashboard update)
-    socketService.notifyRealtimeAnalyticsEvent('ride_created', {
+    socketService.notifyRealtimeAnalyticsEvent("ride_created", {
       rideId: ride._id,
       riderId: ride.rider,
       pickup: ride.pickup,
@@ -588,7 +615,7 @@ exports.bookRide = async (req, res) => {
       vehicleType: ride.vehicleType,
       paymentMethod: ride.paymentMethod,
       estimatedFare: ride.estimatedFare,
-      isScheduled: !!scheduledTime
+      isScheduled: !!scheduledTime,
     });
 
     // Notify rider about scheduled ride confirmation
@@ -631,19 +658,16 @@ exports.bookRide = async (req, res) => {
 
         // Send ride request notifications to all available drivers
         // First, populate the ride with rider information for complete notification data
-        await ride.populate('rider', 'fullName phone profilePicture');
-        
+        await ride.populate("rider", "fullName phone profilePicture");
+
         availableDrivers.forEach((driverInfo) => {
           // Pass the complete ride object with rider info
-          socketService.notifyRideRequest(
-            driverInfo.driver._id.toString(),
-            {
-              ...ride.toObject(),
-              riderName: ride.rider?.fullName || 'Unknown Rider',
-              distance: driverInfo.distance,
-              eta: driverInfo.eta
-            }
-          );
+          socketService.notifyRideRequest(driverInfo.driver._id.toString(), {
+            ...ride.toObject(),
+            riderName: ride.rider?.fullName || "Unknown Rider",
+            distance: driverInfo.distance,
+            eta: driverInfo.eta,
+          });
 
           // Send real-time dashboard update for nearby ride requests
           socketService.notifyNearbyRideRequests(
@@ -716,18 +740,28 @@ async function countAvailableDrivers(pickupLat, pickupLng, vehicleType) {
       vehicleType
     );
     const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
-    console.log("DEBUG: Looking for locations since:", fiveMinutesAgo.toISOString());
+    console.log(
+      "DEBUG: Looking for locations since:",
+      fiveMinutesAgo.toISOString()
+    );
 
     // First, check total LiveLocation records in DB
     const totalLocations = await LiveLocation.countDocuments();
-    console.log("DEBUG: Total LiveLocation records in database:", totalLocations);
+    console.log(
+      "DEBUG: Total LiveLocation records in database:",
+      totalLocations
+    );
 
     const recentLocations = await LiveLocation.find({
       timestamp: { $gte: fiveMinutesAgo },
     }).populate("driver");
 
-    console.log("DEBUG: Found", recentLocations.length, "recent locations (within last 5 min)");
-    
+    console.log(
+      "DEBUG: Found",
+      recentLocations.length,
+      "recent locations (within last 5 min)"
+    );
+
     // Log details of each recent location for debugging
     if (recentLocations.length > 0) {
       recentLocations.forEach((loc, idx) => {
@@ -738,17 +772,21 @@ async function countAvailableDrivers(pickupLat, pickupLng, vehicleType) {
           driverVehicleType: loc.driver?.vehicleType,
           locationTimestamp: loc.timestamp,
           lat: loc.latitude,
-          lng: loc.longitude
+          lng: loc.longitude,
         });
       });
     } else {
       // If no recent locations, check what locations exist
-      const latestLocation = await LiveLocation.findOne().sort({ timestamp: -1 }).populate("driver");
+      const latestLocation = await LiveLocation.findOne()
+        .sort({ timestamp: -1 })
+        .populate("driver");
       if (latestLocation) {
         console.log("DEBUG: Most recent location in DB:", {
           driverId: latestLocation.driver?._id,
           timestamp: latestLocation.timestamp,
-          age: Math.round((Date.now() - latestLocation.timestamp) / 1000 / 60) + " minutes ago"
+          age:
+            Math.round((Date.now() - latestLocation.timestamp) / 1000 / 60) +
+            " minutes ago",
         });
       } else {
         console.log("DEBUG: No LiveLocation records exist in database at all");
@@ -792,11 +830,14 @@ async function countAvailableDrivers(pickupLat, pickupLng, vehicleType) {
       // Check Surrey boundary (disabled for testing)
       const inBoundary = isInSurrey(location.latitude, location.longitude);
       if (!inBoundary) {
-        console.log("DEBUG [countAvailableDrivers]: Driver outside Surrey boundary (allowing for testing):", {
-          driverId: location.driver._id,
-          lat: location.latitude,
-          lng: location.longitude
-        });
+        console.log(
+          "DEBUG [countAvailableDrivers]: Driver outside Surrey boundary (allowing for testing):",
+          {
+            driverId: location.driver._id,
+            lat: location.latitude,
+            lng: location.longitude,
+          }
+        );
         // For testing: Allow drivers outside boundary
         // In production, uncomment the following:
         // filteredOut.outsideBoundary++;
@@ -857,7 +898,9 @@ async function calculateEstimatedPickupTime(pickupLat, pickupLng, vehicleType) {
       // Check Surrey boundary (disabled for testing)
       const inBoundary = isInSurrey(location.latitude, location.longitude);
       if (!inBoundary) {
-        console.log("DEBUG [calculateEstimatedPickupTime]: Driver outside Surrey (allowing for testing)");
+        console.log(
+          "DEBUG [calculateEstimatedPickupTime]: Driver outside Surrey (allowing for testing)"
+        );
         // For production, uncomment: continue;
       }
 
@@ -913,7 +956,9 @@ async function assignDriverToRide(rideId, fareEstimate) {
       // Check Surrey boundary (disabled for testing)
       const inBoundary = isInSurrey(location.latitude, location.longitude);
       if (!inBoundary) {
-        console.log("DEBUG [getAvailableDriversForRide]: Driver outside Surrey (allowing for testing)");
+        console.log(
+          "DEBUG [getAvailableDriversForRide]: Driver outside Surrey (allowing for testing)"
+        );
         // For production, uncomment: continue;
       }
 
@@ -988,14 +1033,16 @@ exports.acceptRide = async (req, res) => {
     let driverDistanceToPickup = null;
     let driverEtaToPickup = null;
 
-    const driverLiveLocation = await LiveLocation.findOne({ driver: ride.driver._id });
+    const driverLiveLocation = await LiveLocation.findOne({
+      driver: ride.driver._id,
+    });
     if (driverLiveLocation) {
       driverLocation = {
         lat: driverLiveLocation.latitude,
         lng: driverLiveLocation.longitude,
         heading: driverLiveLocation.heading || 0,
         speed: driverLiveLocation.speed || 0,
-        lastUpdated: driverLiveLocation.timestamp
+        lastUpdated: driverLiveLocation.timestamp,
       };
 
       // Calculate distance from driver to pickup location
@@ -1009,18 +1056,28 @@ exports.acceptRide = async (req, res) => {
         driverDistanceToPickup = Math.round(driverDistanceToPickup * 10) / 10; // Round to 1 decimal
 
         // Calculate ETA based on distance and speed (default 30 km/h if no speed)
-        driverEtaToPickup = calculateETA(driverDistanceToPickup, driverLiveLocation.speed || 30);
+        driverEtaToPickup = calculateETA(
+          driverDistanceToPickup,
+          driverLiveLocation.speed || 30
+        );
       }
     }
 
     // Enhanced real-time notifications
+
+    // Subscribe both rider and driver to ride status updates for real-time location tracking
+    socketService.subscribeToRideStatusUpdates(
+      ride.rider._id.toString(),
+      ride._id.toString()
+    );
+    socketService.subscribeToRideStatusUpdates(driverId, ride._id.toString());
 
     // 1. Notify rider about ride acceptance with driver location
     socketService.notifyRideStatus(ride.rider._id.toString(), "accepted", {
       ...ride.toObject(),
       driverLocation,
       driverDistanceToPickup,
-      driverEtaToPickup
+      driverEtaToPickup,
     });
 
     // 2. Notify driver about successful acceptance and ride details
@@ -1092,14 +1149,18 @@ exports.acceptRide = async (req, res) => {
 
     // 5. Send dedicated driver location event to rider
     if (driverLocation) {
-      socketService.notifyUser(ride.rider._id.toString(), "driver_location_update", {
-        rideId: ride._id,
-        driverId: ride.driver._id,
-        location: driverLocation,
-        distanceToPickup: driverDistanceToPickup,
-        etaToPickup: driverEtaToPickup,
-        timestamp: new Date()
-      });
+      socketService.notifyUser(
+        ride.rider._id.toString(),
+        "driver_location_update",
+        {
+          rideId: ride._id,
+          driverId: ride.driver._id,
+          location: driverLocation,
+          distanceToPickup: driverDistanceToPickup,
+          etaToPickup: driverEtaToPickup,
+          timestamp: new Date(),
+        }
+      );
     }
 
     // 6. Send push notification to driver (via socket)
@@ -1258,10 +1319,10 @@ exports.startRide = async (req, res) => {
 
     // Send notification to rider about ride start
     socketService.notifyRideStatus(ride.rider.toString(), "in_progress", ride);
-    
+
     // Send dedicated ride_started notification to rider
     socketService.notifyRideStarted(ride.rider.toString(), ride);
-    
+
     await socketService.notifyAdminRideUpdate(ride);
 
     // Trigger immediate active ride update for real-time tracking
@@ -1353,7 +1414,7 @@ exports.completeRide = async (req, res) => {
     await socketService.notifyAdminRideUpdate(ride);
 
     // Notify analytics subscribers about ride completion (real-time dashboard update)
-    socketService.notifyRealtimeAnalyticsEvent('ride_completed', {
+    socketService.notifyRealtimeAnalyticsEvent("ride_completed", {
       rideId: ride._id,
       driverId: ride.driver._id,
       riderId: ride.rider,
@@ -1361,7 +1422,7 @@ exports.completeRide = async (req, res) => {
       driverEarnings: driverEarnings,
       platformCommission: platformCommission,
       distance: ride.actualDistance || ride.estimatedDistance,
-      duration: ride.actualDuration || ride.estimatedDuration
+      duration: ride.actualDuration || ride.estimatedDuration,
     });
 
     // Process payment based on method
@@ -1929,8 +1990,8 @@ exports.getDriverLocation = async (req, res) => {
       select: "vehicleType rating",
       populate: {
         path: "user",
-        select: "fullName phone"
-      }
+        select: "fullName phone",
+      },
     });
 
     if (!ride) {
@@ -1939,12 +2000,20 @@ exports.getDriverLocation = async (req, res) => {
 
     // Verify the requester is the rider of this ride
     if (ride.rider.toString() !== riderId) {
-      return sendError(res, "You are not authorized to view this ride's driver location", 403);
+      return sendError(
+        res,
+        "You are not authorized to view this ride's driver location",
+        403
+      );
     }
 
     // Only allow tracking for active rides (accepted or in_progress)
     if (!["accepted", "assigned", "in_progress"].includes(ride.status)) {
-      return sendError(res, "Driver location is only available for active rides", 400);
+      return sendError(
+        res,
+        "Driver location is only available for active rides",
+        400
+      );
     }
 
     // Check if driver is assigned
@@ -1953,7 +2022,9 @@ exports.getDriverLocation = async (req, res) => {
     }
 
     // Fetch driver's current location
-    const driverLiveLocation = await LiveLocation.findOne({ driver: ride.driver._id });
+    const driverLiveLocation = await LiveLocation.findOne({
+      driver: ride.driver._id,
+    });
 
     if (!driverLiveLocation) {
       return sendError(res, "Driver location not available", 404);
@@ -1965,7 +2036,7 @@ exports.getDriverLocation = async (req, res) => {
       lng: driverLiveLocation.longitude,
       heading: driverLiveLocation.heading || 0,
       speed: driverLiveLocation.speed || 0,
-      lastUpdated: driverLiveLocation.timestamp
+      lastUpdated: driverLiveLocation.timestamp,
     };
 
     // Calculate distance and ETA based on ride status
@@ -1994,7 +2065,10 @@ exports.getDriverLocation = async (req, res) => {
       distanceToTarget = Math.round(distanceToTarget * 10) / 10; // Round to 1 decimal (km)
 
       // Calculate ETA based on distance and speed
-      etaToTarget = calculateETA(distanceToTarget, driverLiveLocation.speed || 30);
+      etaToTarget = calculateETA(
+        distanceToTarget,
+        driverLiveLocation.speed || 30
+      );
     }
 
     const response = {
@@ -2005,22 +2079,24 @@ exports.getDriverLocation = async (req, res) => {
         name: ride.driver.user?.fullName || "Unknown Driver",
         phone: ride.driver.user?.phone || null,
         rating: ride.driver.rating || 5.0,
-        vehicleType: ride.driver.vehicleType
+        vehicleType: ride.driver.vehicleType,
       },
       driverLocation,
       tracking: {
         targetType, // "pickup" or "dropoff"
-        targetLocation: targetLocation ? {
-          lat: targetLocation.lat,
-          lng: targetLocation.lng,
-          address: targetLocation.address
-        } : null,
+        targetLocation: targetLocation
+          ? {
+              lat: targetLocation.lat,
+              lng: targetLocation.lng,
+              address: targetLocation.address,
+            }
+          : null,
         distanceToTarget, // in km
         etaToTarget, // in minutes
       },
       pickup: ride.pickup,
       dropoff: ride.dropoff,
-      timestamp: new Date()
+      timestamp: new Date(),
     };
 
     sendSuccess(res, response, "Driver location retrieved successfully", 200);
@@ -2251,13 +2327,13 @@ exports.cancelRide = async (req, res) => {
     await ride.save();
 
     // Notify analytics subscribers about ride cancellation (real-time dashboard update)
-    socketService.notifyRealtimeAnalyticsEvent('ride_cancelled', {
+    socketService.notifyRealtimeAnalyticsEvent("ride_cancelled", {
       rideId: ride._id,
       driverId: ride.driver,
       riderId: ride.rider,
-      cancelledBy: isRider ? 'rider' : 'driver',
+      cancelledBy: isRider ? "rider" : "driver",
       cancellationReason: cancellationReason,
-      cancellationFee: cancellationFee
+      cancellationFee: cancellationFee,
     });
 
     // Stop real-time active ride updates since ride is cancelled
