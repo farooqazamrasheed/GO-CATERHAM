@@ -3188,3 +3188,854 @@ exports.getAllActiveHistory = async (req, res) => {
     sendError(res, "Failed to retrieve all active status history", 500);
   }
 };
+// =============================================
+// ANALYTICS ENDPOINTS
+// =============================================
+
+// 1. GET /api/v1/admin/analytics - General dashboard analytics
+exports.getAnalytics = async (req, res) => {
+  try {
+    const { startDate, endDate } = req.query;
+    
+    // Default to last 30 days if no dates provided
+    const end = endDate ? new Date(endDate) : new Date();
+    const start = startDate ? new Date(startDate) : new Date(end.getTime() - 30 * 24 * 60 * 60 * 1000);
+
+    // Get counts
+    const [
+      totalRiders,
+      totalDrivers,
+      totalRides,
+      completedRides,
+      cancelledRides,
+      activeDrivers,
+      pendingDrivers,
+      activeRiders,
+      totalRevenue
+    ] = await Promise.all([
+      Rider.countDocuments(),
+      Driver.countDocuments(),
+      Ride.countDocuments({ createdAt: { $gte: start, $lte: end } }),
+      Ride.countDocuments({ status: 'completed', createdAt: { $gte: start, $lte: end } }),
+      Ride.countDocuments({ status: 'cancelled', createdAt: { $gte: start, $lte: end } }),
+      Driver.countDocuments({ status: 'online', isApproved: 'approved' }),
+      Driver.countDocuments({ isApproved: 'pending' }),
+      Rider.countDocuments({ activeStatus: 'active' }),
+      Payment.aggregate([
+        { $match: { status: 'paid', createdAt: { $gte: start, $lte: end } } },
+        { $group: { _id: null, total: { $sum: '$amount' } } }
+      ])
+    ]);
+
+    // Calculate growth (compare to previous period)
+    const previousStart = new Date(start.getTime() - (end.getTime() - start.getTime()));
+    const [previousRides, previousRevenue] = await Promise.all([
+      Ride.countDocuments({ createdAt: { $gte: previousStart, $lt: start } }),
+      Payment.aggregate([
+        { $match: { status: 'paid', createdAt: { $gte: previousStart, $lt: start } } },
+        { $group: { _id: null, total: { $sum: '$amount' } } }
+      ])
+    ]);
+
+    const currentRevenue = totalRevenue[0]?.total || 0;
+    const prevRevenue = previousRevenue[0]?.total || 0;
+    const rideGrowth = previousRides > 0 ? ((completedRides - previousRides) / previousRides * 100).toFixed(1) : 0;
+    const revenueGrowth = prevRevenue > 0 ? ((currentRevenue - prevRevenue) / prevRevenue * 100).toFixed(1) : 0;
+
+    sendSuccess(res, {
+      period: { start, end },
+      users: {
+        totalRiders,
+        activeRiders,
+        totalDrivers,
+        activeDrivers,
+        pendingDrivers
+      },
+      rides: {
+        total: totalRides,
+        completed: completedRides,
+        cancelled: cancelledRides,
+        completionRate: totalRides > 0 ? ((completedRides / totalRides) * 100).toFixed(1) : 0,
+        growth: parseFloat(rideGrowth)
+      },
+      revenue: {
+        total: currentRevenue,
+        growth: parseFloat(revenueGrowth),
+        currency: 'GBP'
+      }
+    }, 'Analytics retrieved successfully', 200);
+  } catch (err) {
+    console.error('Get analytics error:', err);
+    sendError(res, 'Failed to retrieve analytics', 500);
+  }
+};
+
+// 2. GET /api/v1/admin/analytics/revenue - Revenue analytics
+exports.getRevenueAnalytics = async (req, res) => {
+  try {
+    const { startDate, endDate, groupBy = 'day' } = req.query;
+    
+    const end = endDate ? new Date(endDate) : new Date();
+    const start = startDate ? new Date(startDate) : new Date(end.getTime() - 30 * 24 * 60 * 60 * 1000);
+
+    // Date grouping format based on groupBy parameter
+    let dateFormat;
+    switch (groupBy) {
+      case 'hour':
+        dateFormat = { $dateToString: { format: '%Y-%m-%d %H:00', date: '$createdAt' } };
+        break;
+      case 'week':
+        dateFormat = { $dateToString: { format: '%Y-W%V', date: '$createdAt' } };
+        break;
+      case 'month':
+        dateFormat = { $dateToString: { format: '%Y-%m', date: '$createdAt' } };
+        break;
+      default: // day
+        dateFormat = { $dateToString: { format: '%Y-%m-%d', date: '$createdAt' } };
+    }
+
+    // Revenue over time
+    const revenueOverTime = await Payment.aggregate([
+      { $match: { status: 'paid', createdAt: { $gte: start, $lte: end } } },
+      {
+        $group: {
+          _id: dateFormat,
+          revenue: { $sum: '$amount' },
+          transactions: { $sum: 1 },
+          avgTransaction: { $avg: '$amount' }
+        }
+      },
+      { $sort: { _id: 1 } }
+    ]);
+
+    // Revenue by payment method
+    const revenueByMethod = await Payment.aggregate([
+      { $match: { status: 'paid', createdAt: { $gte: start, $lte: end } } },
+      {
+        $group: {
+          _id: '$paymentMethod',
+          revenue: { $sum: '$amount' },
+          count: { $sum: 1 }
+        }
+      }
+    ]);
+
+    // Platform commission vs driver earnings from rides
+    const earningsBreakdown = await Ride.aggregate([
+      { $match: { status: 'completed', createdAt: { $gte: start, $lte: end } } },
+      {
+        $group: {
+          _id: null,
+          totalFare: { $sum: '$fare' },
+          totalCommission: { $sum: '$platformCommission' },
+          totalDriverEarnings: { $sum: '$driverEarnings' },
+          totalTips: { $sum: '$tips' }
+        }
+      }
+    ]);
+
+    // Total summary
+    const totalRevenue = revenueOverTime.reduce((sum, item) => sum + item.revenue, 0);
+    const totalTransactions = revenueOverTime.reduce((sum, item) => sum + item.transactions, 0);
+
+    sendSuccess(res, {
+      period: { start, end, groupBy },
+      summary: {
+        totalRevenue,
+        totalTransactions,
+        averageTransaction: totalTransactions > 0 ? (totalRevenue / totalTransactions).toFixed(2) : 0,
+        currency: 'GBP'
+      },
+      revenueOverTime,
+      revenueByPaymentMethod: revenueByMethod,
+      earningsBreakdown: earningsBreakdown[0] || {
+        totalFare: 0,
+        totalCommission: 0,
+        totalDriverEarnings: 0,
+        totalTips: 0
+      }
+    }, 'Revenue analytics retrieved successfully', 200);
+  } catch (err) {
+    console.error('Get revenue analytics error:', err);
+    sendError(res, 'Failed to retrieve revenue analytics', 500);
+  }
+};
+
+// 3. GET /api/v1/admin/analytics/rides - Ride statistics
+exports.getRideAnalytics = async (req, res) => {
+  try {
+    const { startDate, endDate, groupBy = 'day' } = req.query;
+    
+    const end = endDate ? new Date(endDate) : new Date();
+    const start = startDate ? new Date(startDate) : new Date(end.getTime() - 30 * 24 * 60 * 60 * 1000);
+
+    let dateFormat;
+    switch (groupBy) {
+      case 'hour':
+        dateFormat = { $dateToString: { format: '%Y-%m-%d %H:00', date: '$createdAt' } };
+        break;
+      case 'week':
+        dateFormat = { $dateToString: { format: '%Y-W%V', date: '$createdAt' } };
+        break;
+      case 'month':
+        dateFormat = { $dateToString: { format: '%Y-%m', date: '$createdAt' } };
+        break;
+      default:
+        dateFormat = { $dateToString: { format: '%Y-%m-%d', date: '$createdAt' } };
+    }
+
+    // Rides over time
+    const ridesOverTime = await Ride.aggregate([
+      { $match: { createdAt: { $gte: start, $lte: end } } },
+      {
+        $group: {
+          _id: dateFormat,
+          total: { $sum: 1 },
+          completed: { $sum: { $cond: [{ $eq: ['$status', 'completed'] }, 1, 0] } },
+          cancelled: { $sum: { $cond: [{ $eq: ['$status', 'cancelled'] }, 1, 0] } }
+        }
+      },
+      { $sort: { _id: 1 } }
+    ]);
+
+    // Rides by status
+    const ridesByStatus = await Ride.aggregate([
+      { $match: { createdAt: { $gte: start, $lte: end } } },
+      { $group: { _id: '$status', count: { $sum: 1 } } }
+    ]);
+
+    // Rides by vehicle type
+    const ridesByVehicleType = await Ride.aggregate([
+      { $match: { createdAt: { $gte: start, $lte: end } } },
+      { $group: { _id: '$vehicleType', count: { $sum: 1 } } }
+    ]);
+
+    // Rides by payment method
+    const ridesByPaymentMethod = await Ride.aggregate([
+      { $match: { createdAt: { $gte: start, $lte: end } } },
+      { $group: { _id: '$paymentMethod', count: { $sum: 1 } } }
+    ]);
+
+    // Average ride statistics
+    const avgStats = await Ride.aggregate([
+      { $match: { status: 'completed', createdAt: { $gte: start, $lte: end } } },
+      {
+        $group: {
+          _id: null,
+          avgFare: { $avg: '$fare' },
+          avgDistance: { $avg: '$actualDistance' },
+          avgDuration: { $avg: '$actualDuration' },
+          avgRating: { $avg: '$rating.driverRating' },
+          totalDistance: { $sum: '$actualDistance' },
+          totalDuration: { $sum: '$actualDuration' }
+        }
+      }
+    ]);
+
+    // Peak hours analysis
+    const peakHours = await Ride.aggregate([
+      { $match: { createdAt: { $gte: start, $lte: end } } },
+      {
+        $group: {
+          _id: { $hour: '$createdAt' },
+          count: { $sum: 1 }
+        }
+      },
+      { $sort: { count: -1 } },
+      { $limit: 5 }
+    ]);
+
+    const totalRides = ridesByStatus.reduce((sum, item) => sum + item.count, 0);
+    const completedRides = ridesByStatus.find(s => s._id === 'completed')?.count || 0;
+
+    sendSuccess(res, {
+      period: { start, end, groupBy },
+      summary: {
+        totalRides,
+        completedRides,
+        completionRate: totalRides > 0 ? ((completedRides / totalRides) * 100).toFixed(1) : 0
+      },
+      ridesOverTime,
+      ridesByStatus,
+      ridesByVehicleType,
+      ridesByPaymentMethod,
+      averageStatistics: avgStats[0] || {
+        avgFare: 0,
+        avgDistance: 0,
+        avgDuration: 0,
+        avgRating: 0,
+        totalDistance: 0,
+        totalDuration: 0
+      },
+      peakHours: peakHours.map(h => ({ hour: h._id, rides: h.count }))
+    }, 'Ride analytics retrieved successfully', 200);
+  } catch (err) {
+    console.error('Get ride analytics error:', err);
+    sendError(res, 'Failed to retrieve ride analytics', 500);
+  }
+};
+// 4. GET /api/v1/admin/analytics/top-drivers - Top performing drivers (all drivers ranked by rides)
+exports.getTopDrivers = async (req, res) => {
+  try {
+    const { startDate, endDate, limit = 10, sortBy = 'rides', status } = req.query;
+    
+    const end = endDate ? new Date(endDate) : new Date();
+    const start = startDate ? new Date(startDate) : new Date(end.getTime() - 30 * 24 * 60 * 60 * 1000);
+    const limitNum = parseInt(limit) || 10;
+
+    // Build match query for rides
+    const matchQuery = {
+      createdAt: { $gte: start, $lte: end },
+      driver: { $exists: true, $ne: null }
+    };
+    
+    if (status && status !== 'all') {
+      matchQuery.status = status;
+    }
+
+    // Get ride stats per driver
+    const rideStats = await Ride.aggregate([
+      { $match: matchQuery },
+      {
+        $group: {
+          _id: '$driver',
+          totalRides: { $sum: 1 },
+          totalEarnings: { $sum: { $ifNull: ['$driverEarnings', 0] } },
+          totalFare: { $sum: { $ifNull: ['$fare', 0] } },
+          totalTips: { $sum: { $ifNull: ['$tips', 0] } },
+          avgRating: { $avg: '$rating.driverRating' },
+          totalDistance: { $sum: { $ifNull: ['$actualDistance', 0] } }
+        }
+      }
+    ]);
+
+    // Create a map of ride stats by driver ID
+    const statsMap = {};
+    rideStats.forEach(stat => {
+      statsMap[stat._id.toString()] = stat;
+    });
+
+    // Get ALL active drivers with user info
+    const allDrivers = await Driver.find({ activeStatus: 'active' })
+      .populate('user', 'fullName email phone')
+      .select('user vehicle vehicleType numberPlateOfVehicle photo rating status isApproved')
+      .lean();
+
+    // Combine driver info with ride stats
+    const driversWithStats = allDrivers.map(driver => {
+      const stats = statsMap[driver._id.toString()] || {
+        totalRides: 0,
+        totalEarnings: 0,
+        totalFare: 0,
+        totalTips: 0,
+        avgRating: null,
+        totalDistance: 0
+      };
+
+      return {
+        driverId: driver._id,
+        fullName: driver.user?.fullName || 'Unknown',
+        email: driver.user?.email || '',
+        phone: driver.user?.phone || '',
+        vehicle: driver.vehicle,
+        vehicleType: driver.vehicleType,
+        numberPlate: driver.numberPlateOfVehicle,
+        photo: driver.photo?.url || null,
+        overallRating: driver.rating || 0,
+        status: driver.status,
+        isApproved: driver.isApproved,
+        totalRides: stats.totalRides,
+        totalEarnings: stats.totalEarnings,
+        totalFare: stats.totalFare,
+        totalTips: stats.totalTips,
+        avgRating: stats.avgRating ? parseFloat(stats.avgRating.toFixed(2)) : null,
+        totalDistance: stats.totalDistance ? parseFloat(stats.totalDistance.toFixed(2)) : 0
+      };
+    });
+
+    // Sort based on sortBy parameter (default: rides)
+    driversWithStats.sort((a, b) => {
+      if (sortBy === 'earnings') return b.totalEarnings - a.totalEarnings;
+      if (sortBy === 'rating') return (b.overallRating || 0) - (a.overallRating || 0);
+      return b.totalRides - a.totalRides; // default: rides
+    });
+
+    // Apply limit and add rank
+    const topDrivers = driversWithStats.slice(0, limitNum).map((driver, index) => ({
+      rank: index + 1,
+      ...driver
+    }));
+
+    sendSuccess(res, {
+      period: { start, end },
+      sortedBy: sortBy,
+      totalDrivers: driversWithStats.length,
+      topDrivers
+    }, 'Top drivers retrieved successfully', 200);
+  } catch (err) {
+    console.error('Get top drivers error:', err);
+    sendError(res, 'Failed to retrieve top drivers', 500);
+  }
+};
+
+// 5. GET /api/v1/admin/analytics/top-riders - Top active riders (all riders ranked by rides)
+exports.getTopRiders = async (req, res) => {
+  try {
+    const { startDate, endDate, limit = 10, sortBy = 'rides', status } = req.query;
+    
+    const end = endDate ? new Date(endDate) : new Date();
+    const start = startDate ? new Date(startDate) : new Date(end.getTime() - 30 * 24 * 60 * 60 * 1000);
+    const limitNum = parseInt(limit) || 10;
+
+    // Build match query for rides
+    const matchQuery = {
+      createdAt: { $gte: start, $lte: end },
+      rider: { $exists: true, $ne: null }
+    };
+    
+    if (status && status !== 'all') {
+      matchQuery.status = status;
+    }
+
+    // Get ride stats per rider (rider field stores user._id)
+    const rideStats = await Ride.aggregate([
+      { $match: matchQuery },
+      {
+        $group: {
+          _id: '$rider',
+          totalRides: { $sum: 1 },
+          totalSpent: { $sum: { $ifNull: ['$fare', 0] } },
+          totalTips: { $sum: { $ifNull: ['$tips', 0] } },
+          avgFare: { $avg: '$fare' },
+          avgRating: { $avg: '$rating.riderRating' }
+        }
+      }
+    ]);
+
+    // Create a map of ride stats by rider user ID
+    const statsMap = {};
+    rideStats.forEach(stat => {
+      statsMap[stat._id.toString()] = stat;
+    });
+
+    // Get ALL active riders with user info
+    const allRiders = await Rider.find({ activeStatus: 'active' })
+      .populate('user', 'fullName email phone')
+      .select('user photo rating points status')
+      .lean();
+
+    // Combine rider info with ride stats
+    const ridersWithStats = allRiders.map(rider => {
+      const stats = statsMap[rider.user?._id?.toString()] || {
+        totalRides: 0,
+        totalSpent: 0,
+        totalTips: 0,
+        avgFare: null,
+        avgRating: null
+      };
+
+      return {
+        riderId: rider._id,
+        oderId: rider.user?._id,
+        fullName: rider.user?.fullName || 'Unknown',
+        email: rider.user?.email || '',
+        phone: rider.user?.phone || '',
+        photo: rider.photo?.url || null,
+        overallRating: rider.rating || 0,
+        tier: rider.points?.currentTier || 'Bronze',
+        pointsBalance: rider.points?.balance || 0,
+        status: rider.status,
+        totalRides: stats.totalRides,
+        totalSpent: stats.totalSpent ? parseFloat(stats.totalSpent.toFixed(2)) : 0,
+        totalTips: stats.totalTips ? parseFloat(stats.totalTips.toFixed(2)) : 0,
+        avgFare: stats.avgFare ? parseFloat(stats.avgFare.toFixed(2)) : 0,
+        avgRating: stats.avgRating ? parseFloat(stats.avgRating.toFixed(2)) : null
+      };
+    });
+
+    // Sort based on sortBy parameter (default: rides)
+    ridersWithStats.sort((a, b) => {
+      if (sortBy === 'spending') return b.totalSpent - a.totalSpent;
+      if (sortBy === 'rating') return (b.overallRating || 0) - (a.overallRating || 0);
+      return b.totalRides - a.totalRides; // default: rides
+    });
+
+    // Apply limit and add rank
+    const topRiders = ridersWithStats.slice(0, limitNum).map((rider, index) => ({
+      rank: index + 1,
+      ...rider
+    }));
+
+    sendSuccess(res, {
+      period: { start, end },
+      sortedBy: sortBy,
+      totalRiders: ridersWithStats.length,
+      topRiders
+    }, 'Top riders retrieved successfully', 200);
+  } catch (err) {
+    console.error('Get top riders error:', err);
+    sendError(res, 'Failed to retrieve top riders', 500);
+  }
+};
+
+// 6. GET /api/v1/admin/analytics/realtime - Real-time dashboard data
+exports.getRealtimeAnalytics = async (req, res) => {
+  try {
+    const now = new Date();
+    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const hourAgo = new Date(now.getTime() - 60 * 60 * 1000);
+
+    // Get real-time counts
+    const [
+      onlineDrivers,
+      busyDrivers,
+      offlineDrivers,
+      activeRides,
+      pendingRides,
+      todayRides,
+      todayCompletedRides,
+      todayCancelledRides,
+      lastHourRides,
+      todayRevenue,
+      pendingDriverApprovals,
+      onlineRiders
+    ] = await Promise.all([
+      Driver.countDocuments({ status: 'online', isApproved: 'approved', activeStatus: 'active' }),
+      Driver.countDocuments({ status: 'busy', isApproved: 'approved', activeStatus: 'active' }),
+      Driver.countDocuments({ status: 'offline', isApproved: 'approved', activeStatus: 'active' }),
+      Ride.countDocuments({ status: { $in: ['accepted', 'in_progress'] } }),
+      Ride.countDocuments({ status: { $in: ['requested', 'searching', 'assigned'] } }),
+      Ride.countDocuments({ createdAt: { $gte: todayStart } }),
+      Ride.countDocuments({ status: 'completed', createdAt: { $gte: todayStart } }),
+      Ride.countDocuments({ status: 'cancelled', createdAt: { $gte: todayStart } }),
+      Ride.countDocuments({ createdAt: { $gte: hourAgo } }),
+      Payment.aggregate([
+        { $match: { status: 'paid', createdAt: { $gte: todayStart } } },
+        { $group: { _id: null, total: { $sum: '$amount' } } }
+      ]),
+      Driver.countDocuments({ isApproved: 'pending' }),
+      Rider.countDocuments({ status: 'online' })
+    ]);
+
+    // Recent rides (last 10)
+    const recentRides = await Ride.find()
+      .sort({ createdAt: -1 })
+      .limit(10)
+      .populate('rider', 'fullName email')
+      .populate({
+        path: 'driver',
+        populate: { path: 'user', select: 'fullName' }
+      })
+      .select('status fare pickup.address dropoff.address createdAt paymentMethod');
+
+    // Hourly ride trend for today
+    const hourlyTrend = await Ride.aggregate([
+      { $match: { createdAt: { $gte: todayStart } } },
+      {
+        $group: {
+          _id: { $hour: '$createdAt' },
+          count: { $sum: 1 },
+          completed: { $sum: { $cond: [{ $eq: ['$status', 'completed'] }, 1, 0] } }
+        }
+      },
+      { $sort: { _id: 1 } }
+    ]);
+
+    sendSuccess(res, {
+      timestamp: now,
+      drivers: {
+        online: onlineDrivers,
+        busy: busyDrivers,
+        offline: offlineDrivers,
+        total: onlineDrivers + busyDrivers + offlineDrivers,
+        available: onlineDrivers,
+        pendingApproval: pendingDriverApprovals
+      },
+      riders: {
+        online: onlineRiders
+      },
+      rides: {
+        active: activeRides,
+        pending: pendingRides,
+        inProgress: activeRides,
+        today: {
+          total: todayRides,
+          completed: todayCompletedRides,
+          cancelled: todayCancelledRides,
+          completionRate: todayRides > 0 ? ((todayCompletedRides / todayRides) * 100).toFixed(1) : 0
+        },
+        lastHour: lastHourRides
+      },
+      revenue: {
+        today: todayRevenue[0]?.total || 0,
+        currency: 'GBP'
+      },
+      recentRides: recentRides.map(ride => ({
+        id: ride._id,
+        status: ride.status,
+        fare: ride.fare,
+        pickup: ride.pickup?.address,
+        dropoff: ride.dropoff?.address,
+        paymentMethod: ride.paymentMethod,
+        riderName: ride.rider?.fullName,
+        driverName: ride.driver?.user?.fullName,
+        createdAt: ride.createdAt
+      })),
+      hourlyTrend: hourlyTrend.map(h => ({
+        hour: h._id,
+        total: h.count,
+        completed: h.completed
+      }))
+    }, 'Realtime analytics retrieved successfully', 200);
+  } catch (err) {
+    console.error('Get realtime analytics error:', err);
+    sendError(res, 'Failed to retrieve realtime analytics', 500);
+  }
+};
+
+// Monthly Performance Analytics - Last 12 months with rides, revenue, new users, and month-over-month growth
+exports.getMonthlyPerformance = async (req, res) => {
+  try {
+    const monthsCount = parseInt(req.query.months) || 12;
+    
+    // Calculate start date (beginning of month, X months ago)
+    const now = new Date();
+    const startDate = new Date(now.getFullYear(), now.getMonth() - monthsCount + 1, 1);
+    
+    // Month names for display
+    const monthNames = [
+      "January", "February", "March", "April", "May", "June",
+      "July", "August", "September", "October", "November", "December"
+    ];
+
+    // Aggregate rides by month
+    const ridesByMonth = await Ride.aggregate([
+      {
+        $match: {
+          createdAt: { $gte: startDate }
+        }
+      },
+      {
+        $group: {
+          _id: {
+            year: { $year: "$createdAt" },
+            month: { $month: "$createdAt" }
+          },
+          totalRides: { $sum: 1 },
+          completedRides: {
+            $sum: { $cond: [{ $eq: ["$status", "completed"] }, 1, 0] }
+          },
+          cancelledRides: {
+            $sum: { $cond: [{ $eq: ["$status", "cancelled"] }, 1, 0] }
+          },
+          totalFare: {
+            $sum: { $cond: [{ $eq: ["$status", "completed"] }, "$fare", 0] }
+          },
+          totalTips: {
+            $sum: { $cond: [{ $eq: ["$status", "completed"] }, "$tips", 0] }
+          },
+          platformCommission: {
+            $sum: { $cond: [{ $eq: ["$status", "completed"] }, "$platformCommission", 0] }
+          },
+          driverEarnings: {
+            $sum: { $cond: [{ $eq: ["$status", "completed"] }, "$driverEarnings", 0] }
+          }
+        }
+      },
+      {
+        $sort: { "_id.year": 1, "_id.month": 1 }
+      }
+    ]);
+
+    // Aggregate new drivers by month (based on User createdAt with role 'driver')
+    const newDriversByMonth = await User.aggregate([
+      {
+        $match: {
+          createdAt: { $gte: startDate },
+          role: "driver"
+        }
+      },
+      {
+        $group: {
+          _id: {
+            year: { $year: "$createdAt" },
+            month: { $month: "$createdAt" }
+          },
+          count: { $sum: 1 }
+        }
+      },
+      {
+        $sort: { "_id.year": 1, "_id.month": 1 }
+      }
+    ]);
+
+    // Aggregate new riders by month (based on User createdAt with role 'rider')
+    const newRidersByMonth = await User.aggregate([
+      {
+        $match: {
+          createdAt: { $gte: startDate },
+          role: "rider"
+        }
+      },
+      {
+        $group: {
+          _id: {
+            year: { $year: "$createdAt" },
+            month: { $month: "$createdAt" }
+          },
+          count: { $sum: 1 }
+        }
+      },
+      {
+        $sort: { "_id.year": 1, "_id.month": 1 }
+      }
+    ]);
+
+    // Create lookup maps for easy access
+    const ridesMap = {};
+    ridesByMonth.forEach(r => {
+      ridesMap[`${r._id.year}-${r._id.month}`] = r;
+    });
+
+    const driversMap = {};
+    newDriversByMonth.forEach(d => {
+      driversMap[`${d._id.year}-${d._id.month}`] = d.count;
+    });
+
+    const ridersMap = {};
+    newRidersByMonth.forEach(r => {
+      ridersMap[`${r._id.year}-${r._id.month}`] = r.count;
+    });
+
+    // Build monthly data array for last X months
+    const monthlyData = [];
+    let totalRides = 0;
+    let totalRevenue = 0;
+    let totalCommission = 0;
+    let totalNewDrivers = 0;
+    let totalNewRiders = 0;
+
+    for (let i = 0; i < monthsCount; i++) {
+      const date = new Date(now.getFullYear(), now.getMonth() - monthsCount + 1 + i, 1);
+      const year = date.getFullYear();
+      const month = date.getMonth() + 1; // MongoDB months are 1-indexed
+      const key = `${year}-${month}`;
+
+      const rideData = ridesMap[key] || {
+        totalRides: 0,
+        completedRides: 0,
+        cancelledRides: 0,
+        totalFare: 0,
+        totalTips: 0,
+        platformCommission: 0,
+        driverEarnings: 0
+      };
+
+      const newDrivers = driversMap[key] || 0;
+      const newRiders = ridersMap[key] || 0;
+
+      // Calculate average fare
+      const avgFare = rideData.completedRides > 0 
+        ? (rideData.totalFare / rideData.completedRides) 
+        : 0;
+
+      monthlyData.push({
+        month: monthNames[month - 1],
+        year: year,
+        monthNumber: month,
+        rides: {
+          total: rideData.totalRides,
+          completed: rideData.completedRides,
+          cancelled: rideData.cancelledRides,
+          completionRate: rideData.totalRides > 0 
+            ? parseFloat(((rideData.completedRides / rideData.totalRides) * 100).toFixed(1))
+            : 0
+        },
+        revenue: {
+          totalFare: parseFloat(rideData.totalFare.toFixed(2)),
+          tips: parseFloat(rideData.totalTips.toFixed(2)),
+          platformCommission: parseFloat(rideData.platformCommission.toFixed(2)),
+          driverEarnings: parseFloat(rideData.driverEarnings.toFixed(2)),
+          averageFare: parseFloat(avgFare.toFixed(2))
+        },
+        newUsers: {
+          drivers: newDrivers,
+          riders: newRiders,
+          total: newDrivers + newRiders
+        },
+        growth: {
+          ridesPercent: 0,
+          revenuePercent: 0,
+          newUsersPercent: 0
+        }
+      });
+
+      // Add to totals
+      totalRides += rideData.completedRides;
+      totalRevenue += rideData.totalFare;
+      totalCommission += rideData.platformCommission;
+      totalNewDrivers += newDrivers;
+      totalNewRiders += newRiders;
+    }
+
+    // Calculate month-over-month growth
+    for (let i = 1; i < monthlyData.length; i++) {
+      const current = monthlyData[i];
+      const previous = monthlyData[i - 1];
+
+      // Rides growth
+      if (previous.rides.completed > 0) {
+        current.growth.ridesPercent = parseFloat(
+          (((current.rides.completed - previous.rides.completed) / previous.rides.completed) * 100).toFixed(1)
+        );
+      } else if (current.rides.completed > 0) {
+        current.growth.ridesPercent = 100;
+      }
+
+      // Revenue growth
+      if (previous.revenue.totalFare > 0) {
+        current.growth.revenuePercent = parseFloat(
+          (((current.revenue.totalFare - previous.revenue.totalFare) / previous.revenue.totalFare) * 100).toFixed(1)
+        );
+      } else if (current.revenue.totalFare > 0) {
+        current.growth.revenuePercent = 100;
+      }
+
+      // New users growth
+      if (previous.newUsers.total > 0) {
+        current.growth.newUsersPercent = parseFloat(
+          (((current.newUsers.total - previous.newUsers.total) / previous.newUsers.total) * 100).toFixed(1)
+        );
+      } else if (current.newUsers.total > 0) {
+        current.growth.newUsersPercent = 100;
+      }
+    }
+
+    // Calculate averages
+    const avgMonthlyRides = monthsCount > 0 ? Math.round(totalRides / monthsCount) : 0;
+    const avgMonthlyRevenue = monthsCount > 0 ? parseFloat((totalRevenue / monthsCount).toFixed(2)) : 0;
+
+    sendSuccess(res, {
+      period: {
+        months: monthsCount,
+        startDate: startDate.toISOString(),
+        endDate: now.toISOString()
+      },
+      summary: {
+        totalRides: totalRides,
+        totalRevenue: parseFloat(totalRevenue.toFixed(2)),
+        totalPlatformCommission: parseFloat(totalCommission.toFixed(2)),
+        totalNewDrivers: totalNewDrivers,
+        totalNewRiders: totalNewRiders,
+        totalNewUsers: totalNewDrivers + totalNewRiders,
+        avgMonthlyRides: avgMonthlyRides,
+        avgMonthlyRevenue: avgMonthlyRevenue,
+        currency: "GBP"
+      },
+      monthlyData: monthlyData
+    }, "Monthly performance analytics retrieved successfully", 200);
+  } catch (err) {
+    console.error("Get monthly performance error:", err);
+    sendError(res, "Failed to retrieve monthly performance analytics", 500);
+  }
+};

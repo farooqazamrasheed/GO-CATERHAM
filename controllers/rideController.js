@@ -579,6 +579,18 @@ exports.bookRide = async (req, res) => {
     // Notify admins about new ride booking
     await socketService.notifyAdminRideUpdate(ride);
 
+    // Notify analytics subscribers about new ride (real-time dashboard update)
+    socketService.notifyRealtimeAnalyticsEvent('ride_created', {
+      rideId: ride._id,
+      riderId: ride.rider,
+      pickup: ride.pickup,
+      dropoff: ride.dropoff,
+      vehicleType: ride.vehicleType,
+      paymentMethod: ride.paymentMethod,
+      estimatedFare: ride.estimatedFare,
+      isScheduled: !!scheduledTime
+    });
+
     // Notify rider about scheduled ride confirmation
     if (scheduledTime) {
       socketService.notifyRideStatus(req.user.id, "scheduled", ride);
@@ -1290,6 +1302,18 @@ exports.completeRide = async (req, res) => {
 
     // Notify admins about ride completion
     await socketService.notifyAdminRideUpdate(ride);
+
+    // Notify analytics subscribers about ride completion (real-time dashboard update)
+    socketService.notifyRealtimeAnalyticsEvent('ride_completed', {
+      rideId: ride._id,
+      driverId: ride.driver._id,
+      riderId: ride.rider,
+      fare: finalFare,
+      driverEarnings: driverEarnings,
+      platformCommission: platformCommission,
+      distance: ride.actualDistance || ride.estimatedDistance,
+      duration: ride.actualDuration || ride.estimatedDuration
+    });
 
     // Process payment based on method
     if (ride.paymentMethod === "wallet") {
@@ -2063,6 +2087,16 @@ exports.cancelRide = async (req, res) => {
     ride.cancellationFee = cancellationFee;
     ride.refundAmount = refundAmount;
     await ride.save();
+
+    // Notify analytics subscribers about ride cancellation (real-time dashboard update)
+    socketService.notifyRealtimeAnalyticsEvent('ride_cancelled', {
+      rideId: ride._id,
+      driverId: ride.driver,
+      riderId: ride.rider,
+      cancelledBy: isRider ? 'rider' : 'driver',
+      cancellationReason: cancellationReason,
+      cancellationFee: cancellationFee
+    });
 
     // Stop real-time active ride updates since ride is cancelled
     socketService.stopActiveRideUpdates(ride._id.toString());

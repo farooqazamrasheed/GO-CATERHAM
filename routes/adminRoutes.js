@@ -255,4 +255,57 @@ router.get(
   adminController.getAllActiveHistory
 );
 
+// =============================================
+// ANALYTICS ROUTES
+// =============================================
+
+// General analytics overview
+router.get(
+  "/analytics",
+  checkRole("admin", "superadmin", "subadmin"),
+  adminController.getAnalytics
+);
+
+// Revenue analytics
+router.get(
+  "/analytics/revenue",
+  checkRole("admin", "superadmin", "subadmin"),
+  adminController.getRevenueAnalytics
+);
+
+// Ride analytics
+router.get(
+  "/analytics/rides",
+  checkRole("admin", "superadmin", "subadmin"),
+  adminController.getRideAnalytics
+);
+
+// Top performing drivers
+router.get(
+  "/analytics/top-drivers",
+  checkRole("admin", "superadmin", "subadmin"),
+  adminController.getTopDrivers
+);
+
+// Top active riders
+router.get(
+  "/analytics/top-riders",
+  checkRole("admin", "superadmin", "subadmin"),
+  adminController.getTopRiders
+);
+
+// Real-time analytics
+router.get(
+  "/analytics/realtime",
+  checkRole("admin", "superadmin", "subadmin"),
+  adminController.getRealtimeAnalytics
+);
+
+// Monthly performance analytics
+router.get(
+  "/analytics/monthly-performance",
+  checkRole("admin", "superadmin", "subadmin"),
+  adminController.getMonthlyPerformance
+);
+
 module.exports = router;
