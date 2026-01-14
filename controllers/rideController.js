@@ -983,10 +983,45 @@ exports.acceptRide = async (req, res) => {
       },
     ]);
 
+    // Fetch driver's current location for rider tracking
+    let driverLocation = null;
+    let driverDistanceToPickup = null;
+    let driverEtaToPickup = null;
+
+    const driverLiveLocation = await LiveLocation.findOne({ driver: ride.driver._id });
+    if (driverLiveLocation) {
+      driverLocation = {
+        lat: driverLiveLocation.latitude,
+        lng: driverLiveLocation.longitude,
+        heading: driverLiveLocation.heading || 0,
+        speed: driverLiveLocation.speed || 0,
+        lastUpdated: driverLiveLocation.timestamp
+      };
+
+      // Calculate distance from driver to pickup location
+      if (ride.pickup && ride.pickup.lat && ride.pickup.lng) {
+        driverDistanceToPickup = calculateDistance(
+          driverLiveLocation.latitude,
+          driverLiveLocation.longitude,
+          parseFloat(ride.pickup.lat),
+          parseFloat(ride.pickup.lng)
+        );
+        driverDistanceToPickup = Math.round(driverDistanceToPickup * 10) / 10; // Round to 1 decimal
+
+        // Calculate ETA based on distance and speed (default 30 km/h if no speed)
+        driverEtaToPickup = calculateETA(driverDistanceToPickup, driverLiveLocation.speed || 30);
+      }
+    }
+
     // Enhanced real-time notifications
 
-    // 1. Notify rider about ride acceptance
-    socketService.notifyRideStatus(ride.rider._id.toString(), "accepted", ride);
+    // 1. Notify rider about ride acceptance with driver location
+    socketService.notifyRideStatus(ride.rider._id.toString(), "accepted", {
+      ...ride.toObject(),
+      driverLocation,
+      driverDistanceToPickup,
+      driverEtaToPickup
+    });
 
     // 2. Notify driver about successful acceptance and ride details
     socketService.notifyUser(driverId, "ride_accepted_success", {
@@ -1022,7 +1057,7 @@ exports.acceptRide = async (req, res) => {
       "ride_accepted"
     );
 
-    // 4. Update rider dashboard with driver assignment
+    // 4. Update rider dashboard with driver assignment including location
     socketService.notifyRiderDashboardUpdate(
       ride.rider._id.toString(),
       {
@@ -1042,17 +1077,32 @@ exports.acceptRide = async (req, res) => {
                   plateNumber: ride.driver.vehicle.plateNumber || "Unknown",
                 }
               : null,
+            currentLocation: driverLocation,
           },
           pickup: ride.pickup,
           dropoff: ride.dropoff,
           estimatedFare: ride.estimatedFare,
           acceptedAt: ride.acceptedAt,
+          driverDistanceToPickup,
+          driverEtaToPickup,
         },
       },
       "driver_assigned"
     );
 
-    // 5. Send push notification to driver (via socket)
+    // 5. Send dedicated driver location event to rider
+    if (driverLocation) {
+      socketService.notifyUser(ride.rider._id.toString(), "driver_location_update", {
+        rideId: ride._id,
+        driverId: ride.driver._id,
+        location: driverLocation,
+        distanceToPickup: driverDistanceToPickup,
+        etaToPickup: driverEtaToPickup,
+        timestamp: new Date()
+      });
+    }
+
+    // 6. Send push notification to driver (via socket)
     socketService.notifyUser(driverId, "push_notification", {
       title: "Ride Accepted!",
       message: `You have accepted a ride to ${
@@ -1104,7 +1154,10 @@ exports.acceptRide = async (req, res) => {
               plateNumber: ride.driver.vehicle.plateNumber || "Unknown",
             }
           : null,
+        currentLocation: driverLocation,
       },
+      driverDistanceToPickup,
+      driverEtaToPickup,
       message: "Ride accepted successfully. Please proceed to pickup location.",
     };
 
@@ -1861,6 +1914,119 @@ exports.getRideStatus = async (req, res) => {
   } catch (error) {
     console.error("Get ride status error:", error);
     sendError(res, "Failed to retrieve ride status", 500);
+  }
+};
+
+// Get driver location for a specific ride (Rider use - to track driver)
+exports.getDriverLocation = async (req, res) => {
+  try {
+    const rideId = req.params.rideId;
+    const riderId = req.user.id;
+
+    // Find the ride and verify rider owns it
+    const ride = await Ride.findById(rideId).populate({
+      path: "driver",
+      select: "vehicleType rating",
+      populate: {
+        path: "user",
+        select: "fullName phone"
+      }
+    });
+
+    if (!ride) {
+      return sendError(res, "Ride not found", 404);
+    }
+
+    // Verify the requester is the rider of this ride
+    if (ride.rider.toString() !== riderId) {
+      return sendError(res, "You are not authorized to view this ride's driver location", 403);
+    }
+
+    // Only allow tracking for active rides (accepted or in_progress)
+    if (!["accepted", "assigned", "in_progress"].includes(ride.status)) {
+      return sendError(res, "Driver location is only available for active rides", 400);
+    }
+
+    // Check if driver is assigned
+    if (!ride.driver) {
+      return sendError(res, "No driver assigned to this ride yet", 400);
+    }
+
+    // Fetch driver's current location
+    const driverLiveLocation = await LiveLocation.findOne({ driver: ride.driver._id });
+
+    if (!driverLiveLocation) {
+      return sendError(res, "Driver location not available", 404);
+    }
+
+    // Build location response
+    const driverLocation = {
+      lat: driverLiveLocation.latitude,
+      lng: driverLiveLocation.longitude,
+      heading: driverLiveLocation.heading || 0,
+      speed: driverLiveLocation.speed || 0,
+      lastUpdated: driverLiveLocation.timestamp
+    };
+
+    // Calculate distance and ETA based on ride status
+    let distanceToTarget = null;
+    let etaToTarget = null;
+    let targetLocation = null;
+    let targetType = null;
+
+    if (ride.status === "accepted" || ride.status === "assigned") {
+      // Driver is on the way to pickup
+      targetLocation = ride.pickup;
+      targetType = "pickup";
+    } else if (ride.status === "in_progress") {
+      // Driver is on the way to dropoff
+      targetLocation = ride.dropoff;
+      targetType = "dropoff";
+    }
+
+    if (targetLocation && targetLocation.lat && targetLocation.lng) {
+      distanceToTarget = calculateDistance(
+        driverLiveLocation.latitude,
+        driverLiveLocation.longitude,
+        parseFloat(targetLocation.lat),
+        parseFloat(targetLocation.lng)
+      );
+      distanceToTarget = Math.round(distanceToTarget * 10) / 10; // Round to 1 decimal (km)
+
+      // Calculate ETA based on distance and speed
+      etaToTarget = calculateETA(distanceToTarget, driverLiveLocation.speed || 30);
+    }
+
+    const response = {
+      rideId: ride._id,
+      rideStatus: ride.status,
+      driver: {
+        id: ride.driver._id,
+        name: ride.driver.user?.fullName || "Unknown Driver",
+        phone: ride.driver.user?.phone || null,
+        rating: ride.driver.rating || 5.0,
+        vehicleType: ride.driver.vehicleType
+      },
+      driverLocation,
+      tracking: {
+        targetType, // "pickup" or "dropoff"
+        targetLocation: targetLocation ? {
+          lat: targetLocation.lat,
+          lng: targetLocation.lng,
+          address: targetLocation.address
+        } : null,
+        distanceToTarget, // in km
+        etaToTarget, // in minutes
+      },
+      pickup: ride.pickup,
+      dropoff: ride.dropoff,
+      timestamp: new Date()
+    };
+
+    sendSuccess(res, response, "Driver location retrieved successfully", 200);
+  } catch (error) {
+    console.error("Get driver location error:", error);
+    sendError(res, "Failed to retrieve driver location", 500);
   }
 };
 

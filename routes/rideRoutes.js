@@ -66,6 +66,11 @@ router.get(
   checkPermission("view_ride_status"),
   rideController.getRideStatus
 );
+router.get(
+  "/:rideId/driver-location",
+  checkPermission("view_ride_status"),
+  rideController.getDriverLocation
+);
 router.put(
   "/:rideId/cancel",
   formDataParser.none(), // Parse form-data fields
