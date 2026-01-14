@@ -1015,22 +1015,17 @@ exports.acceptRide = async (req, res) => {
     // Get rider and driver information for response
     await ride.populate([
       {
-        path: "rider",
-        select: "fullName phone",
-      },
-      {
-        path: "driver",
-        select: "vehicle vehicleModel vehicleColor numberPlateOfVehicle rating",
-        populate: {
-          path: "user",
-          select: "fullName phone",
-        },
-      },
-    ]);
+    // Subscribe both rider and driver to ride status updates for real-time location tracking
+    socketService.subscribeToRideStatusUpdates(ride.rider._id.toString(), ride._id.toString());
+    socketService.subscribeToRideStatusUpdates(driverId, ride._id.toString());
 
-    // Fetch driver's current location for rider tracking
-    let driverLocation = null;
-    let driverDistanceToPickup = null;
+    // 1. Notify rider about ride acceptance with driver location
+    socketService.notifyRideStatus(ride.rider._id.toString(), "accepted", {
+      ...ride.toObject(),
+      driverLocation,
+      driverDistanceToPickup,
+      driverEtaToPickup
+    });
     let driverEtaToPickup = null;
 
     const driverLiveLocation = await LiveLocation.findOne({
