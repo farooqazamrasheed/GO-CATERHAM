@@ -973,6 +973,10 @@ exports.acceptRide = async (req, res) => {
 
     // Enhanced real-time notifications
 
+    // Subscribe both rider and driver to ride status updates for real-time location tracking
+    socketService.subscribeToRideStatusUpdates(ride.rider._id.toString(), ride._id.toString());
+    socketService.subscribeToRideStatusUpdates(driverId, ride._id.toString());
+
     // 1. Notify rider about ride acceptance
     socketService.notifyRideStatus(ride.rider._id.toString(), "accepted", ride);
 
