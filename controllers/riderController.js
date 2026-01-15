@@ -95,6 +95,96 @@ function calculateETA(distanceKm, speedKmh = 30) {
   return Math.round(timeHours * 60); // Return minutes
 }
 
+// Get rider's active ride (Required by BACKEND_REQUIREMENTS.md)
+// GET /api/v1/riders/active-ride
+exports.getActiveRide = async (req, res) => {
+  try {
+    const userId = req.user.id;
+
+    // Find rider profile
+    const rider = await Rider.findOne({ user: userId });
+    if (!rider) {
+      return sendError(res, "Rider profile not found", 404);
+    }
+
+    // Find active ride for this rider
+    // Active statuses: pending, accepted, arrived, in_progress, searching
+    const activeRide = await Ride.findOne({
+      rider: rider._id,
+      status: { $in: ["pending", "searching", "accepted", "arrived", "in_progress"] }
+    })
+    .populate({
+      path: "driver",
+      populate: {
+        path: "user",
+        select: "fullName phone"
+      }
+    })
+    .sort({ createdAt: -1 });
+
+    if (!activeRide) {
+      return sendSuccess(res, { ride: null }, "No active ride found", 200);
+    }
+
+    // Get driver's current location if ride is accepted or in progress
+    let driverLocation = null;
+    if (activeRide.driver && ["accepted", "arrived", "in_progress"].includes(activeRide.status)) {
+      const location = await LiveLocation.findOne({ driver: activeRide.driver._id })
+        .sort({ timestamp: -1 });
+      
+      if (location) {
+        driverLocation = {
+          latitude: location.latitude,
+          longitude: location.longitude,
+          heading: location.heading || 0,
+          speed: location.speed || 0,
+          lastUpdated: location.timestamp
+        };
+      }
+    }
+
+    // Format response as per BACKEND_REQUIREMENTS.md
+    const rideResponse = {
+      _id: activeRide._id,
+      status: activeRide.status,
+      driver: activeRide.driver ? {
+        id: activeRide.driver._id,
+        _id: activeRide.driver._id,
+        fullName: activeRide.driver.user?.fullName || "Unknown Driver",
+        phone: activeRide.driver.user?.phone || null,
+        vehicleType: activeRide.driver.vehicleType || "sedan",
+        vehicleNumber: activeRide.driver.numberPlateOfVehicle || null,
+        vehicleColor: activeRide.driver.vehicleColor || null,
+        rating: activeRide.driver.rating || 5.0,
+        currentLocation: driverLocation
+      } : null,
+      pickup: {
+        latitude: activeRide.pickup?.latitude || activeRide.pickup?.lat,
+        longitude: activeRide.pickup?.longitude || activeRide.pickup?.lng,
+        address: activeRide.pickup?.address || "Pickup Location"
+      },
+      dropoff: {
+        latitude: activeRide.dropoff?.latitude || activeRide.dropoff?.lat,
+        longitude: activeRide.dropoff?.longitude || activeRide.dropoff?.lng,
+        address: activeRide.dropoff?.address || "Dropoff Location"
+      },
+      fare: activeRide.fare || activeRide.estimatedFare || 0,
+      estimatedDistance: activeRide.estimatedDistance || 0,
+      estimatedDuration: activeRide.estimatedDuration || 0,
+      vehicleType: activeRide.vehicleType || "sedan",
+      paymentMethod: activeRide.paymentMethod || "cash",
+      createdAt: activeRide.createdAt,
+      acceptedAt: activeRide.acceptedAt || null,
+      startedAt: activeRide.startTime || null
+    };
+
+    sendSuccess(res, { ride: rideResponse }, "Active ride retrieved successfully", 200);
+  } catch (error) {
+    console.error("Get active ride error:", error);
+    sendError(res, "Failed to retrieve active ride", 500);
+  }
+};
+
 // Get rider's past rides with pagination and filtering
 exports.getRideHistory = async (req, res) => {
   try {

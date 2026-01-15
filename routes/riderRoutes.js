@@ -95,6 +95,12 @@ router.get(
   riderController.getAvailableDrivers
 );
 
+// Get rider's active ride (Required by BACKEND_REQUIREMENTS.md)
+router.get(
+  "/active-ride",
+  riderController.getActiveRide
+);
+
 // Debug endpoint to check why drivers are not appearing (for troubleshooting)
 router.get(
   "/debug-drivers",

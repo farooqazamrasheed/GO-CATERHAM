@@ -394,44 +394,73 @@ exports.bookRide = async (req, res) => {
     const scheduledTime = req.body.scheduledTime || req.query.scheduledTime; // Optional: for future bookings
     const specialInstructions =
       req.body.specialInstructions || req.query.specialInstructions; // Optional
+    
+    // CRITICAL: Extract driverId for targeted ride requests (BACKEND_REQUIREMENTS.md)
+    // When driverId is provided, the ride request should ONLY be sent to that specific driver
+    const targetDriverId = req.body.driverId || req.query.driverId || null;
 
     // Extract location data from request (may be sent along with or without estimateId)
-    // Check both req.body and req.query, and support both flat and nested structures
-    // Frontend might send: {pickupLat, pickupLng} OR {pickup: {lat, lng, latitude, longitude}}
+    // Check both req.body and req.query, and support multiple naming conventions
+    // Frontend might send: {pickupLat, pickupLng} OR {pickup: {lat, lng, latitude, longitude}} OR {pickupLatitude, pickupLongitude}
     const pickupLat =
       req.body.pickupLat ||
+      req.body.pickupLatitude ||
       req.query.pickupLat ||
+      req.query.pickupLatitude ||
       req.body.pickup?.lat ||
-      req.body.pickup?.latitude;
+      req.body.pickup?.latitude ||
+      req.body.pickupLocation?.lat ||
+      req.body.pickupLocation?.latitude;
     const pickupLng =
       req.body.pickupLng ||
+      req.body.pickupLongitude ||
       req.query.pickupLng ||
+      req.query.pickupLongitude ||
       req.body.pickup?.lng ||
-      req.body.pickup?.longitude;
+      req.body.pickup?.longitude ||
+      req.body.pickupLocation?.lng ||
+      req.body.pickupLocation?.longitude;
     const pickupAddress =
       req.body.pickupAddress ||
       req.query.pickupAddress ||
-      req.body.pickup?.address;
+      req.body.pickup?.address ||
+      req.body.pickupLocation?.address ||
+      "Pickup Location"; // Default if not provided
     const dropoffLat =
       req.body.dropoffLat ||
+      req.body.dropoffLatitude ||
+      req.body.destinationLat ||
+      req.body.destinationLatitude ||
       req.query.dropoffLat ||
+      req.query.dropoffLatitude ||
       req.body.dropoff?.lat ||
       req.body.dropoff?.latitude ||
       req.body.destination?.lat ||
-      req.body.destination?.latitude;
+      req.body.destination?.latitude ||
+      req.body.dropoffLocation?.lat ||
+      req.body.dropoffLocation?.latitude;
     const dropoffLng =
       req.body.dropoffLng ||
+      req.body.dropoffLongitude ||
+      req.body.destinationLng ||
+      req.body.destinationLongitude ||
       req.query.dropoffLng ||
+      req.query.dropoffLongitude ||
       req.body.dropoff?.lng ||
       req.body.dropoff?.longitude ||
       req.body.destination?.lng ||
-      req.body.destination?.longitude;
+      req.body.destination?.longitude ||
+      req.body.dropoffLocation?.lng ||
+      req.body.dropoffLocation?.longitude;
     const dropoffAddress =
       req.body.dropoffAddress ||
+      req.body.destinationAddress ||
       req.query.dropoffAddress ||
       req.body.dropoff?.address ||
-      req.body.destination?.address;
-    const vehicleType = req.body.vehicleType || req.query.vehicleType;
+      req.body.destination?.address ||
+      req.body.dropoffLocation?.address ||
+      "Dropoff Location"; // Default if not provided
+    const vehicleType = req.body.vehicleType || req.query.vehicleType || "sedan"; // Default to sedan
 
     console.log("Extracted values:", {
       estimateId,
@@ -578,8 +607,8 @@ exports.bookRide = async (req, res) => {
     // Create ride
     const rideData = {
       rider: req.user.id,
-      driver: null,
-      status: scheduledTime ? "scheduled" : "searching",
+      driver: targetDriverId || null, // Set driver if targeted request
+      status: scheduledTime ? "scheduled" : (targetDriverId ? "pending" : "searching"),
       scheduledTime: scheduledDate,
       specialInstructions,
       paymentMethod,
@@ -627,6 +656,113 @@ exports.bookRide = async (req, res) => {
     let assignedDriver = null;
     let estimatedPickupTime = null;
     let availableDrivers = [];
+
+    // =====================================================
+    // TARGETED RIDE REQUEST (BACKEND_REQUIREMENTS.md - CRITICAL)
+    // When driverId is provided, send request ONLY to that driver
+    // =====================================================
+    if (!scheduledTime && targetDriverId) {
+      console.log(`🎯 [TARGETED REQUEST] Sending ride request ONLY to driver: ${targetDriverId}`);
+      
+      // Verify the target driver exists and is available
+      const targetDriver = await Driver.findById(targetDriverId).populate("user", "fullName phone");
+      
+      if (!targetDriver) {
+        return sendError(res, "Selected driver not found", 404);
+      }
+      
+      if (targetDriver.status !== "online") {
+        return sendError(res, "Selected driver is not available", 400);
+      }
+      
+      if (targetDriver.isApproved !== "approved") {
+        return sendError(res, "Selected driver is not approved", 400);
+      }
+      
+      // Get driver's current location for ETA calculation
+      const driverLocation = await LiveLocation.findOne({ driver: targetDriverId })
+        .sort({ timestamp: -1 });
+      
+      let driverDistance = null;
+      let driverEta = null;
+      
+      if (driverLocation && fareEstimate) {
+        driverDistance = calculateDistance(
+          driverLocation.latitude,
+          driverLocation.longitude,
+          parseFloat(fareEstimate.pickup.lat),
+          parseFloat(fareEstimate.pickup.lng)
+        );
+        driverEta = calculateETA(driverDistance, driverLocation.speed || 30);
+      }
+      
+      // Populate ride with rider info for notification
+      await ride.populate("rider", "fullName phone profilePicture");
+      
+      // Get the driver's User ID (not Driver ID) for socket notification
+      const driverUserId = targetDriver.user._id.toString();
+      
+      // Send ride request ONLY to this specific driver
+      socketService.notifyRideRequest(targetDriverId, {
+        ...ride.toObject(),
+        rideId: ride._id,
+        riderId: ride.rider._id,
+        riderName: ride.rider?.fullName || "Unknown Rider",
+        pickup: ride.pickup,
+        dropoff: ride.dropoff,
+        fare: ride.estimatedFare,
+        distance: driverDistance ? Math.round(driverDistance * 10) / 10 : null,
+        eta: driverEta,
+        vehicleType: ride.vehicleType,
+        estimatedDistance: ride.estimatedDistance,
+        expiresAt: new Date(Date.now() + 60000) // 1 minute expiry as per spec
+      });
+      
+      console.log(`✅ [TARGETED REQUEST] Ride request sent ONLY to driver ${targetDriverId} (User: ${driverUserId})`);
+      
+      // Notify rider that request was sent to specific driver
+      socketService.notifyRideStatus(req.user.id, "pending", {
+        ...ride.toObject(),
+        targetDriver: {
+          id: targetDriver._id,
+          name: targetDriver.user?.fullName || "Unknown Driver",
+          vehicleType: targetDriver.vehicleType,
+          rating: targetDriver.rating || 5.0
+        },
+        message: `Ride request sent to ${targetDriver.user?.fullName || 'selected driver'}. Waiting for response...`
+      });
+      
+      // Start timer for this single driver (60 seconds as per spec)
+      rideRequestManager.startRideRequest(ride._id, [targetDriverId]);
+      
+      const response = {
+        rideId: ride._id,
+        status: ride.status,
+        targetDriver: {
+          id: targetDriver._id,
+          name: targetDriver.user?.fullName || "Unknown Driver",
+          vehicleType: targetDriver.vehicleType,
+          rating: targetDriver.rating || 5.0,
+          distance: driverDistance ? Math.round(driverDistance * 10) / 10 : null,
+          eta: driverEta
+        },
+        message: `Ride request sent to ${targetDriver.user?.fullName || 'selected driver'}. Waiting for response...`,
+        expiresAt: new Date(Date.now() + 60000)
+      };
+      
+      if (fareEstimate) {
+        response.fareEstimate = {
+          total: fareEstimate.fareBreakdown.total,
+          currency: fareEstimate.currency,
+          breakdown: fareEstimate.fareBreakdown,
+        };
+      }
+      
+      return sendSuccess(res, response, "Ride request sent to driver", 201);
+    }
+    // =====================================================
+    // END TARGETED RIDE REQUEST
+    // =====================================================
 
     if (!scheduledTime && fareEstimate) {
       const assignmentResult = await assignDriverToRide(ride._id, fareEstimate);
