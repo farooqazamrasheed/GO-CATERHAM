@@ -682,7 +682,31 @@ class SocketService {
    */
   broadcastDriverLocationToSubscribers(driverId, locationData) {
     if (this.io) {
-      this.io.to(`driver_location:${driverId}`).emit("driver_location_update", {
+      const roomName = `driver_location:${driverId}`;
+      
+      // Debug logging
+      console.log(`\n${'='.repeat(60)}`);
+      console.log(`📡 [BROADCAST DRIVER LOCATION]`);
+      console.log(`   Driver ID: ${driverId}`);
+      console.log(`   Room: ${roomName}`);
+      console.log(`   Location: (${locationData.latitude}, ${locationData.longitude})`);
+      
+      // Check how many sockets are in this room
+      const room = this.io.sockets.adapter.rooms.get(roomName);
+      const subscriberCount = room ? room.size : 0;
+      console.log(`   Subscribers in room: ${subscriberCount}`);
+      
+      if (subscriberCount === 0) {
+        console.log(`   ⚠️  WARNING: No subscribers in room ${roomName}`);
+        console.log(`   Available rooms:`);
+        this.io.sockets.adapter.rooms.forEach((sockets, roomName) => {
+          if (roomName.startsWith('driver_location:')) {
+            console.log(`     - ${roomName} (${sockets.size} subscribers)`);
+          }
+        });
+      }
+      
+      this.io.to(roomName).emit("driver_location_update", {
         driverId: driverId,
         latitude: locationData.latitude,
         longitude: locationData.longitude,
@@ -690,6 +714,9 @@ class SocketService {
         speed: locationData.speed || 0,
         timestamp: new Date().toISOString()
       });
+      
+      console.log(`   ✅ Broadcast sent to ${subscriberCount} subscriber(s)`);
+      console.log(`${'='.repeat(60)}\n`);
     }
   }
 
@@ -2293,10 +2320,17 @@ class SocketService {
     if (this.io) {
       try {
         // Populate the ride data if not already populated
-        const populatedRide = await rideData.populate([
-          { path: "rider", select: "fullName" },
-          { path: "driver", populate: { path: "user", select: "fullName" } },
-        ]);
+        // Check if rideData has populate method (is a Mongoose document)
+        let populatedRide;
+        if (typeof rideData.populate === 'function') {
+          populatedRide = await rideData.populate([
+            { path: "rider", select: "fullName" },
+            { path: "driver", populate: { path: "user", select: "fullName" } },
+          ]);
+        } else {
+          // If it's already a plain object, use it as is
+          populatedRide = rideData;
+        }
 
         // Emit to all admin users (admin, superadmin, subadmin)
         this.io.emit("admin_ride_update", {

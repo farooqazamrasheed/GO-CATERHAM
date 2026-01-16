@@ -608,7 +608,7 @@ exports.bookRide = async (req, res) => {
     const rideData = {
       rider: req.user.id,
       driver: targetDriverId || null, // Set driver if targeted request
-      status: scheduledTime ? "scheduled" : (targetDriverId ? "pending" : "searching"),
+      status: scheduledTime ? "scheduled" : (targetDriverId ? "requested" : "searching"),
       scheduledTime: scheduledDate,
       specialInstructions,
       paymentMethod,
@@ -839,6 +839,9 @@ exports.bookRide = async (req, res) => {
     const response = {
       rideId: ride._id,
       status: ride.status,
+      pickup: ride.pickup,
+      dropoff: ride.dropoff,
+      vehicleType: ride.vehicleType,
       estimatedPickupTime,
       driverAssigned: !!assignedDriver,
       scheduledTime: ride.scheduledTime,
@@ -1287,6 +1290,49 @@ exports.acceptRide = async (req, res) => {
           timestamp: new Date(),
         }
       );
+    }
+
+    // 5b. CRITICAL: Subscribe rider to driver's location updates
+    // This ensures rider receives real-time location updates as driver moves
+    // The rider needs to be subscribed to the driver_location:{driverId} room
+    // so they receive broadcasts when driver sends update_location events
+    if (socketService.io) {
+      // Find all sockets for this rider and subscribe them to driver location room
+      const riderId = ride.rider._id.toString();
+      const driverIdStr = ride.driver._id.toString();
+      
+      console.log(`\n${'='.repeat(60)}`);
+      console.log(`📍 [AUTO-SUBSCRIBE DEBUG]`);
+      console.log(`   Rider ID: ${riderId}`);
+      console.log(`   Driver ID (MongoDB): ${driverIdStr}`);
+      console.log(`   Target Room: driver_location:${driverIdStr}`);
+      console.log(`   Connected Sockets: ${socketService.io.sockets.sockets.size}`);
+      
+      let subscribedCount = 0;
+      socketService.io.sockets.sockets.forEach((socket) => {
+        console.log(`   Socket ${socket.id}: userId=${socket.userId}, matches=${socket.userId === riderId}`);
+        if (socket.userId === riderId) {
+          socket.join(`driver_location:${driverIdStr}`);
+          subscribedCount++;
+          console.log(`   ✅ Subscribed socket ${socket.id} to driver_location:${driverIdStr}`);
+          
+          // Verify subscription
+          const rooms = Array.from(socket.rooms);
+          console.log(`   Socket rooms after join: ${rooms.join(', ')}`);
+        }
+      });
+      
+      console.log(`   Total subscribed: ${subscribedCount}`);
+      console.log(`${'='.repeat(60)}\n`);
+      
+      // Send immediate confirmation to rider
+      if (subscribedCount > 0) {
+        socketService.notifyUser(riderId, "driver_tracking_started", {
+          driverId: driverIdStr,
+          message: "Real-time driver tracking is now active",
+          timestamp: new Date()
+        });
+      }
     }
 
     // 6. Send push notification to driver (via socket)
