@@ -152,12 +152,21 @@ class SocketService {
       //-----------------------------------------------------------------
 
       // Dashboard subscription for real-time updates
-      socket.on("subscribe_dashboard", (data) => {
+      // Support both 'subscribe_dashboard' and 'subscribe_to_dashboard' event names
+      const handleDashboardSubscription = (data) => {
         const { userId, userType, latitude, longitude } = data;
         if (userId && userType === "driver") {
           socket.join(`dashboard_${userId}`);
           console.log(`📊 [DASHBOARD SUBSCRIBE] Driver: ${socket.userName || userId} (${userType})`);
           console.log(`   Location: ${latitude ? `(${latitude}, ${longitude})` : 'Not provided'}`);
+
+          // Send subscription confirmation (for frontend compatibility)
+          socket.emit('dashboard_subscribed', { 
+            success: true, 
+            userId: userId,
+            userType: userType,
+            timestamp: new Date().toISOString()
+          });
 
           // Send initial dashboard data
           this.sendInitialDashboardData(userId, latitude, longitude);
@@ -174,6 +183,14 @@ class SocketService {
           console.log(`📊 [DASHBOARD SUBSCRIBE] Rider: ${socket.userName || userId} (${userType})`);
           console.log(`   Location: ${latitude ? `(${latitude}, ${longitude})` : 'Not provided'}`);
 
+          // Send subscription confirmation (for frontend compatibility)
+          socket.emit('dashboard_subscribed', { 
+            success: true, 
+            userId: userId,
+            userType: userType,
+            timestamp: new Date().toISOString()
+          });
+
           // Cache rider location for real-time driver updates
           if (latitude && longitude) {
             this.riderLocations.set(userId, {
@@ -186,8 +203,19 @@ class SocketService {
 
           // Send initial rider dashboard data
           this.sendInitialRiderDashboardData(userId, latitude, longitude);
+        } else {
+          // Send error if userId or userType is missing
+          socket.emit('dashboard_subscribed', { 
+            success: false, 
+            message: 'userId and userType are required',
+            timestamp: new Date().toISOString()
+          });
         }
-      });
+      };
+      
+      // Listen for both event names for backwards compatibility
+      socket.on("subscribe_dashboard", handleDashboardSubscription);
+      socket.on("subscribe_to_dashboard", handleDashboardSubscription);
 
       // Handle driver location updates via WebSocket
       socket.on("update_location", async (data) => {
@@ -1328,14 +1356,21 @@ class SocketService {
     };
 
     const event = eventMap[status] || "ride_status_update";
-    this.notifyUser(riderId, event, {
-      rideId: rideData._id,
+    
+    // FIX: Ensure critical ride data is always included (driver, pickup, dropoff)
+    const notificationData = {
+      rideId: rideData._id || rideData.rideId,
       status,
+      driver: rideData.driver || null,
+      pickup: rideData.pickup || null,
+      dropoff: rideData.dropoff || null,
       ...rideData,
-    });
+    };
+    
+    this.notifyUser(riderId, event, notificationData);
 
     // Also send real-time status update to all subscribers of this ride
-    this.notifyRideStatusSubscribers(rideData._id, status, rideData);
+    this.notifyRideStatusSubscribers(rideData._id || rideData.rideId, status, notificationData);
   }
 
   /**
@@ -1346,6 +1381,16 @@ class SocketService {
    */
   notifyRideStatusSubscribers(rideId, status, rideData) {
     if (this.io) {
+      // FIX: Ensure ride data includes driver, pickup, dropoff for frontend
+      const notificationData = {
+        rideId: rideData._id || rideData.rideId || rideId,
+        status,
+        driver: rideData.driver || null,
+        pickup: rideData.pickup || null,
+        dropoff: rideData.dropoff || null,
+        ...rideData,
+      };
+      
       // Find all rooms that match the pattern for this ride
       const rideStatusRooms = Array.from(
         this.io.sockets.adapter.rooms.keys()
@@ -1353,9 +1398,7 @@ class SocketService {
 
       rideStatusRooms.forEach((room) => {
         this.io.to(room).emit("ride_status_change", {
-          rideId,
-          status,
-          ...rideData,
+          ...notificationData,
           timestamp: new Date(),
         });
       });

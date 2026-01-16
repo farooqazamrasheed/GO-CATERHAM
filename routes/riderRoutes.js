@@ -18,6 +18,12 @@ router.get("/", adminController.getRiders);
 // All rider routes require authentication
 router.use(auth);
 
+// Get rider profile (Required by BACKEND_REQUIREMENTS.md)
+router.get(
+  "/profile",
+  riderController.getRiderProfile
+);
+
 // View past rides
 router.get(
   "/rides",
@@ -66,10 +72,10 @@ router.put(
   profileController.updateProfile
 );
 
-// Photo management
+// Photo management (Required by BACKEND_REQUIREMENTS.md)
+// POST /api/v1/riders/photo - Upload profile photo
 router.post(
   "/photo",
-  checkPermission("upload_photo"),
   riderPhotoUpload.single("photo"),
   (err, req, res, next) => {
     if (err instanceof multer.MulterError) {

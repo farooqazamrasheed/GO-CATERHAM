@@ -95,6 +95,48 @@ function calculateETA(distanceKm, speedKmh = 30) {
   return Math.round(timeHours * 60); // Return minutes
 }
 
+// Get rider profile (Required by BACKEND_REQUIREMENTS.md)
+// GET /api/v1/riders/profile
+exports.getRiderProfile = async (req, res) => {
+  try {
+    const userId = req.user.id;
+
+    // Find rider profile
+    const rider = await Rider.findOne({ user: userId }).populate({
+      path: "user",
+      select: "fullName email phone profileImage"
+    });
+
+    if (!rider) {
+      return sendError(res, "Rider profile not found", 404);
+    }
+
+    // Get user details
+    const user = await User.findById(userId).select("fullName email phone profileImage");
+
+    // Format response as per BACKEND_REQUIREMENTS.md
+    const profileResponse = {
+      rider: {
+        _id: rider._id,
+        fullName: user?.fullName || "Unknown Rider",
+        email: user?.email || null,
+        phone: user?.phone || null,
+        profileImage: rider.photo?.url || user?.profileImage || null,
+        rating: rider.rating || 5.0,
+        status: rider.status || "offline",
+        referralCode: rider.referralCode || null,
+        points: rider.points?.balance || 0,
+        currentTier: rider.points?.currentTier || "Bronze"
+      }
+    };
+
+    sendSuccess(res, profileResponse, "Rider profile retrieved successfully", 200);
+  } catch (error) {
+    console.error("Get rider profile error:", error);
+    sendError(res, "Failed to retrieve rider profile", 500);
+  }
+};
+
 // Get rider's active ride (Required by BACKEND_REQUIREMENTS.md)
 // GET /api/v1/riders/active-ride
 exports.getActiveRide = async (req, res) => {
@@ -144,6 +186,8 @@ exports.getActiveRide = async (req, res) => {
     }
 
     // Format response as per BACKEND_REQUIREMENTS.md
+    // CRITICAL FIX: The Ride model stores coordinates as 'lat' and 'lng', not 'latitude' and 'longitude'
+    // We need to properly extract these values and ensure they're always present in the response
     const rideResponse = {
       _id: activeRide._id,
       status: activeRide.status,
@@ -159,13 +203,19 @@ exports.getActiveRide = async (req, res) => {
         currentLocation: driverLocation
       } : null,
       pickup: {
-        latitude: activeRide.pickup?.latitude || activeRide.pickup?.lat,
-        longitude: activeRide.pickup?.longitude || activeRide.pickup?.lng,
+        // FIXED: Use 'lat' and 'lng' from the database, then also provide as 'latitude' and 'longitude' for frontend compatibility
+        latitude: activeRide.pickup?.lat || activeRide.pickup?.latitude || null,
+        longitude: activeRide.pickup?.lng || activeRide.pickup?.longitude || null,
+        lat: activeRide.pickup?.lat || activeRide.pickup?.latitude || null,
+        lng: activeRide.pickup?.lng || activeRide.pickup?.longitude || null,
         address: activeRide.pickup?.address || "Pickup Location"
       },
       dropoff: {
-        latitude: activeRide.dropoff?.latitude || activeRide.dropoff?.lat,
-        longitude: activeRide.dropoff?.longitude || activeRide.dropoff?.lng,
+        // FIXED: Use 'lat' and 'lng' from the database, then also provide as 'latitude' and 'longitude' for frontend compatibility
+        latitude: activeRide.dropoff?.lat || activeRide.dropoff?.latitude || null,
+        longitude: activeRide.dropoff?.lng || activeRide.dropoff?.longitude || null,
+        lat: activeRide.dropoff?.lat || activeRide.dropoff?.latitude || null,
+        lng: activeRide.dropoff?.lng || activeRide.dropoff?.longitude || null,
         address: activeRide.dropoff?.address || "Dropoff Location"
       },
       fare: activeRide.fare || activeRide.estimatedFare || 0,
@@ -530,7 +580,8 @@ exports.getDashboard = async (req, res) => {
   }
 };
 
-// Upload rider photo
+// Upload rider photo (Required by BACKEND_REQUIREMENTS.md)
+// POST /api/v1/riders/photo
 exports.uploadPhoto = async (req, res) => {
   try {
     if (!req.file) {
@@ -560,8 +611,9 @@ exports.uploadPhoto = async (req, res) => {
     }
 
     // Update rider photo information
+    const photoUrl = `/uploads/riders/${req.file.filename}`;
     rider.photo = {
-      url: `/uploads/riders/${req.file.filename}`,
+      url: photoUrl,
       filename: req.file.filename,
       uploadedAt: new Date(),
       mimetype: req.file.mimetype,
@@ -570,10 +622,11 @@ exports.uploadPhoto = async (req, res) => {
 
     await rider.save();
 
+    // Response format as per BACKEND_REQUIREMENTS.md
     sendSuccess(
       res,
       {
-        photo: rider.photo,
+        photoUrl: photoUrl
       },
       "Photo uploaded successfully",
       200
@@ -747,7 +800,8 @@ exports.activateAccount = async (req, res) => {
   }
 };
 
-// Get available drivers near a location
+// Get available drivers near a location (Required by BACKEND_REQUIREMENTS.md)
+// GET /api/v1/riders/available-drivers
 exports.getAvailableDrivers = async (req, res) => {
   try {
     const { latitude, longitude, radius, vehicleType } = req.query;
@@ -786,14 +840,25 @@ exports.getAvailableDrivers = async (req, res) => {
       vehicleType
     );
 
-    // Response format as per BACKEND_CHANGES_REQUIRED.md specification
+    // Format response as per BACKEND_REQUIREMENTS.md specification
+    const formattedDrivers = nearbyDrivers.map(driver => ({
+      id: driver.driverId,
+      name: driver.driverName,
+      rating: driver.rating || 4.5,
+      vehicleType: driver.vehicleType,
+      vehicleNumber: driver.vehicleNumber || "N/A",
+      currentLocation: {
+        latitude: driver.location.latitude,
+        longitude: driver.location.longitude
+      },
+      distance: Math.round(driver.distance * 1000), // Convert km to meters as per spec
+      estimatedFare: calculateEstimatedFare(driver.distance, driver.vehicleType)
+    }));
+
     sendSuccess(
       res,
       { 
-        drivers: nearbyDrivers, 
-        count: nearbyDrivers.length,
-        searchRadius: searchRadius * 1000, // Convert back to meters for response
-        timestamp: new Date().toISOString()
+        drivers: formattedDrivers
       },
       "Available drivers retrieved successfully",
       200
@@ -803,6 +868,41 @@ exports.getAvailableDrivers = async (req, res) => {
     sendError(res, "Failed to retrieve available drivers", 500);
   }
 };
+
+// Helper function to calculate estimated fare
+function calculateEstimatedFare(distanceKm, vehicleType = "sedan") {
+  const baseFares = {
+    sedan: 5.00,
+    suv: 7.00,
+    electric: 6.00,
+    hatchback: 4.50,
+    coupe: 6.50,
+    convertible: 8.00,
+    wagon: 6.00,
+    pickup: 7.50,
+    van: 8.50,
+    motorcycle: 3.50
+  };
+  
+  const perKmRates = {
+    sedan: 1.50,
+    suv: 2.00,
+    electric: 1.75,
+    hatchback: 1.25,
+    coupe: 1.75,
+    convertible: 2.25,
+    wagon: 1.75,
+    pickup: 2.00,
+    van: 2.50,
+    motorcycle: 1.00
+  };
+
+  const baseFare = baseFares[vehicleType] || baseFares.sedan;
+  const perKmRate = perKmRates[vehicleType] || perKmRates.sedan;
+  
+  const totalFare = baseFare + (distanceKm * perKmRate);
+  return parseFloat(totalFare.toFixed(2));
+}
 
 /**
  * Diagnostic endpoint to check why drivers are not appearing
@@ -1026,6 +1126,8 @@ async function getNearbyDrivers(userLat, userLon, maxDistanceKm = 5, vehicleType
           },
           heading: location.heading || 0,
           vehicleType: location.driver.vehicleType || "sedan",
+          vehicleNumber: location.driver.numberPlateOfVehicle || null,
+          rating: location.driver.rating || 4.5,
           distance: Math.round(distance * 10) / 10, // Round to 1 decimal place
           eta: eta,
           speed: location.speed || 0,

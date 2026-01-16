@@ -215,6 +215,38 @@ function generateEstimateId() {
   return "est_" + crypto.randomBytes(8).toString("hex");
 }
 
+// CRITICAL HELPER: Format ride response with BOTH coordinate formats
+// The database stores as lat/lng, but frontend expects BOTH lat/lng AND latitude/longitude
+function formatRideResponse(ride) {
+  if (!ride) return null;
+  
+  const rideObj = ride.toObject ? ride.toObject() : ride;
+  
+  // Format pickup with BOTH coordinate formats
+  if (rideObj.pickup) {
+    rideObj.pickup = {
+      lat: rideObj.pickup.lat || rideObj.pickup.latitude || null,
+      lng: rideObj.pickup.lng || rideObj.pickup.longitude || null,
+      latitude: rideObj.pickup.lat || rideObj.pickup.latitude || null,
+      longitude: rideObj.pickup.lng || rideObj.pickup.longitude || null,
+      address: rideObj.pickup.address || "Pickup Location"
+    };
+  }
+  
+  // Format dropoff with BOTH coordinate formats
+  if (rideObj.dropoff) {
+    rideObj.dropoff = {
+      lat: rideObj.dropoff.lat || rideObj.dropoff.latitude || null,
+      lng: rideObj.dropoff.lng || rideObj.dropoff.longitude || null,
+      latitude: rideObj.dropoff.lat || rideObj.dropoff.latitude || null,
+      longitude: rideObj.dropoff.lng || rideObj.dropoff.longitude || null,
+      address: rideObj.dropoff.address || "Dropoff Location"
+    };
+  }
+  
+  return rideObj;
+}
+
 // Get fare estimate
 exports.getFareEstimate = async (req, res) => {
   try {
@@ -836,15 +868,18 @@ exports.bookRide = async (req, res) => {
       }
     }
 
+    // CRITICAL FIX: Format ride response with both coordinate formats
+    const formattedRide = formatRideResponse(ride);
+    
     const response = {
-      rideId: ride._id,
-      status: ride.status,
-      pickup: ride.pickup,
-      dropoff: ride.dropoff,
-      vehicleType: ride.vehicleType,
+      rideId: formattedRide._id,
+      status: formattedRide.status,
+      pickup: formattedRide.pickup,  // Now has BOTH lat/lng AND latitude/longitude
+      dropoff: formattedRide.dropoff, // Now has BOTH lat/lng AND latitude/longitude
+      vehicleType: formattedRide.vehicleType,
       estimatedPickupTime,
       driverAssigned: !!assignedDriver,
-      scheduledTime: ride.scheduledTime,
+      scheduledTime: formattedRide.scheduledTime,
       message: scheduledTime
         ? `Ride scheduled for ${scheduledDate.toLocaleString()}`
         : assignedDriver
@@ -1500,7 +1535,9 @@ exports.startRide = async (req, res) => {
     // Trigger immediate active ride update for real-time tracking
     socketService.sendActiveRideUpdate(ride._id.toString());
 
-    sendSuccess(res, { ride }, "Ride started successfully", 200);
+    // CRITICAL FIX: Format ride response with both coordinate formats
+    const formattedRide = formatRideResponse(ride);
+    sendSuccess(res, { ride: formattedRide }, "Ride started successfully", 200);
   } catch (error) {
     console.error("Start ride error:", error);
     sendError(res, "Failed to start ride", 500);
@@ -2085,6 +2122,19 @@ exports.getRideStatus = async (req, res) => {
             type: ride.vehicleType,
           }
         : null,
+      // FIX: Include pickup/dropoff at top level for frontend compatibility
+      pickup: ride.pickup
+        ? {
+            ...ride.pickup,
+            eta: pickupEta,
+          }
+        : null,
+      dropoff: ride.dropoff
+        ? {
+            ...ride.dropoff,
+            eta: dropoffEta,
+          }
+        : null,
       locations: {
         pickup: ride.pickup
           ? {
@@ -2143,6 +2193,8 @@ exports.getRideStatus = async (req, res) => {
       });
     }
 
+    // CRITICAL FIX: Format ride response with both coordinate formats
+    response.ride = formatRideResponse(response.ride);
     sendSuccess(res, response, "Ride status retrieved successfully", 200);
   } catch (error) {
     console.error("Get ride status error:", error);
@@ -2391,6 +2443,19 @@ exports.getActiveRide = async (req, res) => {
               : null,
           }
         : null,
+      // FIX: Include pickup/dropoff at top level for frontend compatibility
+      pickup: activeRide.pickup
+        ? {
+            ...activeRide.pickup,
+            eta: pickupEta,
+          }
+        : null,
+      dropoff: activeRide.dropoff
+        ? {
+            ...activeRide.dropoff,
+            eta: dropoffEta,
+          }
+        : null,
       locations: {
         pickup: activeRide.pickup
           ? {
@@ -2420,6 +2485,8 @@ exports.getActiveRide = async (req, res) => {
       paymentMethod: activeRide.paymentMethod,
     };
 
+    // CRITICAL FIX: Format ride response with both coordinate formats
+    response.ride = formatRideResponse(response.ride);
     sendSuccess(res, response, "Active ride retrieved successfully", 200);
   } catch (error) {
     console.error("Get active ride error:", error);

@@ -61,6 +61,41 @@ app.use("/api/v1/stripe", stripeRoutes);
 // Serve uploaded files statically
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
+// Test endpoint to verify Socket.IO is running (for debugging)
+app.get('/test-socket', (req, res) => {
+  try {
+    const io = req.app.get('io');
+    if (!io) {
+      return res.status(500).json({
+        socketIO: 'not initialized',
+        error: 'Socket.IO instance not found',
+        port: process.env.PORT || 5000
+      });
+    }
+    
+    const connectedClients = io.sockets.sockets.size;
+    const rooms = Array.from(io.sockets.adapter.rooms.keys()).filter(
+      room => !io.sockets.sockets.has(room) // Filter out socket IDs (which are also in rooms)
+    );
+    
+    res.json({
+      socketIO: 'running',
+      status: 'healthy',
+      connectedClients: connectedClients,
+      activeRooms: rooms.length,
+      sampleRooms: rooms.slice(0, 10), // Show first 10 rooms for debugging
+      port: process.env.PORT || 5000,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    res.status(500).json({
+      socketIO: 'error',
+      error: error.message,
+      port: process.env.PORT || 5000
+    });
+  }
+});
+
 // Error handler
 app.use((err, req, res, next) => {
   console.error(err);
