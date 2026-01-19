@@ -459,7 +459,29 @@ exports.signup = async (req, res) => {
 // ================= LOGIN =================
 exports.login = async (req, res) => {
   try {
-    const { identifier, password, role } = req.body; // identifier can be username, email or phone
+    // Support multiple field name formats from different clients
+    let { identifier, password, role, email, username, phone } = req.body;
+    
+    // If identifier is not provided, try to use email, username, or phone
+    if (!identifier) {
+      identifier = email || username || phone;
+    }
+
+    // Validate required fields
+    if (!identifier) {
+      console.log("Login failed: No identifier provided. Request body:", req.body);
+      return sendError(res, "Username, email or phone is required", 400);
+    }
+
+    if (!password) {
+      console.log("Login failed: No password provided. Request body:", req.body);
+      return sendError(res, "Password is required", 400);
+    }
+
+    if (!role) {
+      console.log("Login failed: No role provided. Request body:", req.body);
+      return sendError(res, "Role is required", 400);
+    }
 
     // Restrict roles to rider/driver/admin/superadmin/subadmin only
     if (
@@ -533,7 +555,7 @@ exports.login = async (req, res) => {
         { new: true }
       );
       profileData = updatedDriver;
-    } else if (user.role === "admin" || user.role === "superadmin") {
+    } else if (user.role === "admin" || user.role === "superadmin" || user.role === "subadmin") {
       const admin = await Admin.findOneAndUpdate(
         { user: user._id },
         { status: "online" },
@@ -571,6 +593,12 @@ exports.login = async (req, res) => {
     // Get profile information
     let profileInfo = {};
     if (role === "rider") {
+      // Safety check for profileData
+      if (!profileData || !profileData._id) {
+        console.error("ProfileData is undefined for rider role");
+        return sendError(res, "Rider profile not found", 404);
+      }
+
       // Calculate total rides
       const Ride = require("../models/Ride");
       const totalRides = await Ride.countDocuments({
@@ -631,6 +659,12 @@ exports.login = async (req, res) => {
         userUpdatedAt: user.updatedAt,
       };
     } else if (role === "driver") {
+      // Safety check for profileData
+      if (!profileData || !profileData._id) {
+        console.error("ProfileData is undefined for driver role");
+        return sendError(res, "Driver profile not found", 404);
+      }
+
       // Calculate earnings
       const Ride = require("../models/Ride");
       const today = new Date();
@@ -756,9 +790,24 @@ exports.login = async (req, res) => {
       role === "superadmin" ||
       role === "subadmin"
     ) {
-      // Populate assigned permissions and roles
-      await profileData.populate("assignedPermissions.permissionId");
-      await profileData.populate("assignedRoles");
+      // Safety check for profileData
+      if (!profileData || !profileData._id) {
+        console.error("ProfileData is undefined for admin role:", role);
+        return sendError(res, "Admin profile not found", 404);
+      }
+
+      // Populate assigned permissions and roles safely
+      try {
+        if (profileData.assignedPermissions && profileData.assignedPermissions.length > 0) {
+          await profileData.populate("assignedPermissions.permissionId");
+        }
+        if (profileData.assignedRoles && profileData.assignedRoles.length > 0) {
+          await profileData.populate("assignedRoles");
+        }
+      } catch (populateError) {
+        console.error("Error populating admin data:", populateError);
+        // Continue without populated data rather than failing
+      }
 
       profileInfo = {
         adminId: profileData._id,
@@ -766,8 +815,8 @@ exports.login = async (req, res) => {
         adminType: profileData.adminType,
         onlineStatus: profileData.status,
         activeStatus: profileData.activeStatus,
-        assignedPermissions: profileData.assignedPermissions,
-        assignedRoles: profileData.assignedRoles,
+        assignedPermissions: profileData.assignedPermissions || [],
+        assignedRoles: profileData.assignedRoles || [],
         createdAt: profileData.createdAt,
         updatedAt: profileData.updatedAt,
         // User data
@@ -792,6 +841,12 @@ exports.login = async (req, res) => {
     );
   } catch (err) {
     console.error("Login error:", err);
+    console.error("Login error stack:", err.stack);
+    console.error("Login error details:", {
+      name: err.name,
+      message: err.message,
+      code: err.code,
+    });
     sendError(res, "Login failed", 500);
   }
 };
