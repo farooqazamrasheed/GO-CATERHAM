@@ -247,6 +247,78 @@ function formatRideResponse(ride) {
   return rideObj;
 }
 
+// FRONTEND COMPATIBILITY: Map backend status to frontend expected status
+// Frontend expects: pending, accepted, in_progress, completed, cancelled
+// Backend uses: searching, requested, accepted, in_progress, completed, cancelled
+function mapStatusForFrontend(backendStatus) {
+  const statusMap = {
+    'searching': 'pending',
+    'requested': 'pending',
+    'scheduled': 'pending',
+    'accepted': 'accepted',
+    'in_progress': 'in_progress',
+    'completed': 'completed',
+    'cancelled': 'cancelled'
+  };
+  return statusMap[backendStatus] || backendStatus;
+}
+
+// FRONTEND COMPATIBILITY: Format complete ride response for frontend
+// Frontend expects specific field names and structure
+function formatRideForFrontend(ride, includeDriver = false, includeRider = false) {
+  if (!ride) return null;
+  
+  const rideObj = ride.toObject ? ride.toObject() : ride;
+  
+  // Base ride object with frontend-expected field names
+  const formattedRide = {
+    rideId: rideObj._id?.toString() || rideObj.id?.toString(),
+    riderId: rideObj.rider?._id?.toString() || rideObj.rider?.toString(),
+    driverId: rideObj.driver?._id?.toString() || rideObj.driver?.toString(),
+    status: mapStatusForFrontend(rideObj.status),
+    pickup: rideObj.pickup ? {
+      latitude: rideObj.pickup.lat || rideObj.pickup.latitude || null,
+      longitude: rideObj.pickup.lng || rideObj.pickup.longitude || null,
+      address: rideObj.pickup.address || "Pickup Location"
+    } : null,
+    dropoff: rideObj.dropoff ? {
+      latitude: rideObj.dropoff.lat || rideObj.dropoff.latitude || null,
+      longitude: rideObj.dropoff.lng || rideObj.dropoff.longitude || null,
+      address: rideObj.dropoff.address || "Dropoff Location"
+    } : null,
+    fare: rideObj.estimatedFare || rideObj.fare || null,
+    vehicleType: rideObj.vehicleType || null,
+    createdAt: rideObj.createdAt?.toISOString() || new Date().toISOString(),
+  };
+  
+  // Optional fields
+  if (rideObj.acceptedAt) formattedRide.acceptedAt = rideObj.acceptedAt.toISOString();
+  if (rideObj.startTime) formattedRide.startedAt = rideObj.startTime.toISOString();
+  if (rideObj.endTime) formattedRide.completedAt = rideObj.endTime.toISOString();
+  if (rideObj.cancelledAt) formattedRide.cancelledAt = rideObj.cancelledAt.toISOString();
+  if (rideObj.cancellationReason) formattedRide.cancellationReason = rideObj.cancellationReason;
+  if (rideObj.cancelledBy) formattedRide.cancelledBy = rideObj.cancelledBy;
+  if (rideObj.distance) formattedRide.distance = rideObj.distance;
+  if (rideObj.duration) formattedRide.duration = rideObj.duration;
+  if (rideObj.driverEarnings !== undefined) formattedRide.earnings = rideObj.driverEarnings;
+  if (rideObj.cancellationFee !== undefined) formattedRide.cancellationFee = rideObj.cancellationFee;
+  
+  // Include driver info if requested
+  if (includeDriver && rideObj.driver) {
+    const driver = rideObj.driver;
+    formattedRide.driver = {
+      driverId: driver._id?.toString() || driver.toString(),
+      name: driver.user?.fullName || driver.fullName || "Unknown Driver",
+      phone: driver.user?.phone || driver.phone || null,
+      vehicleType: driver.vehicleType || null,
+      vehicleNumber: driver.vehicle?.plateNumber || null,
+      rating: driver.rating || 5.0
+    };
+  }
+  
+  return formattedRide;
+}
+
 // Get fare estimate
 exports.getFareEstimate = async (req, res) => {
   try {
@@ -868,35 +940,35 @@ exports.bookRide = async (req, res) => {
       }
     }
 
-    // CRITICAL FIX: Format ride response with both coordinate formats
-    const formattedRide = formatRideResponse(ride);
+    // CRITICAL FIX: Format ride response for frontend compatibility
+    const formattedRide = formatRideForFrontend(ride, false, false);
     
+    // Wrap in data.ride structure as frontend expects
     const response = {
-      rideId: formattedRide._id,
-      status: formattedRide.status,
-      pickup: formattedRide.pickup,  // Now has BOTH lat/lng AND latitude/longitude
-      dropoff: formattedRide.dropoff, // Now has BOTH lat/lng AND latitude/longitude
-      vehicleType: formattedRide.vehicleType,
-      estimatedPickupTime,
-      driverAssigned: !!assignedDriver,
-      scheduledTime: formattedRide.scheduledTime,
-      message: scheduledTime
-        ? `Ride scheduled for ${scheduledDate.toLocaleString()}`
-        : assignedDriver
-        ? `Driver assigned! Estimated pickup in ${estimatedPickupTime} minutes`
-        : "Searching for available driver...",
+      ride: {
+        ...formattedRide,
+        estimatedPickupTime,
+        driverAssigned: !!assignedDriver,
+        scheduledTime: scheduledTime ? scheduledDate.toISOString() : undefined,
+      }
     };
 
     // Include fare details if estimate was used
     if (fareEstimate) {
-      response.fareEstimate = {
+      response.ride.fareEstimate = {
         total: fareEstimate.fareBreakdown.total,
         currency: fareEstimate.currency,
         breakdown: fareEstimate.fareBreakdown,
       };
     }
 
-    sendSuccess(res, response, "Ride booked successfully", 201);
+    const message = scheduledTime
+      ? `Ride scheduled for ${scheduledDate.toLocaleString()}`
+      : assignedDriver
+      ? `Driver assigned! Estimated pickup in ${estimatedPickupTime} minutes`
+      : "Searching for available driver...";
+
+    sendSuccess(res, response, message, 201);
   } catch (error) {
     console.error("Book ride error:", error);
     sendError(res, "Failed to book ride", 500);

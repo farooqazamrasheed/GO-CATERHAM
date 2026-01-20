@@ -185,50 +185,37 @@ exports.getActiveRide = async (req, res) => {
       }
     }
 
-    // Format response as per BACKEND_REQUIREMENTS.md
-    // CRITICAL FIX: The Ride model stores coordinates as 'lat' and 'lng', not 'latitude' and 'longitude'
-    // We need to properly extract these values and ensure they're always present in the response
+    // FRONTEND COMPATIBLE: Format response to match GET /api/v1/rides/active requirements
+    // Frontend expects ONLY latitude/longitude format (NOT lat/lng)
     const rideResponse = {
-      _id: activeRide._id,
+      id: activeRide._id.toString(),
+      riderId: activeRide.rider.toString(),
+      driverId: activeRide.driver?._id?.toString() || null,
       status: activeRide.status,
+      pickup: {
+        latitude: activeRide.pickup?.lat || activeRide.pickup?.latitude || null,
+        longitude: activeRide.pickup?.lng || activeRide.pickup?.longitude || null,
+        address: activeRide.pickup?.address || "Pickup Location"
+      },
+      dropoff: {
+        latitude: activeRide.dropoff?.lat || activeRide.dropoff?.latitude || null,
+        longitude: activeRide.dropoff?.lng || activeRide.dropoff?.longitude || null,
+        address: activeRide.dropoff?.address || "Dropoff Location"
+      },
+      estimatedFare: activeRide.fare || activeRide.estimatedFare || 0,
+      vehicleType: activeRide.vehicleType || "sedan",
       driver: activeRide.driver ? {
-        id: activeRide.driver._id,
-        _id: activeRide.driver._id,
+        id: activeRide.driver._id.toString(),
         fullName: activeRide.driver.user?.fullName || "Unknown Driver",
         phone: activeRide.driver.user?.phone || null,
         vehicleType: activeRide.driver.vehicleType || "sedan",
         vehicleNumber: activeRide.driver.numberPlateOfVehicle || null,
-        vehicleColor: activeRide.driver.vehicleColor || null,
         rating: activeRide.driver.rating || 5.0,
         currentLocation: driverLocation
-      } : null,
-      pickup: {
-        // FIXED: Use 'lat' and 'lng' from the database, then also provide as 'latitude' and 'longitude' for frontend compatibility
-        latitude: activeRide.pickup?.lat || activeRide.pickup?.latitude || null,
-        longitude: activeRide.pickup?.lng || activeRide.pickup?.longitude || null,
-        lat: activeRide.pickup?.lat || activeRide.pickup?.latitude || null,
-        lng: activeRide.pickup?.lng || activeRide.pickup?.longitude || null,
-        address: activeRide.pickup?.address || "Pickup Location"
-      },
-      dropoff: {
-        // FIXED: Use 'lat' and 'lng' from the database, then also provide as 'latitude' and 'longitude' for frontend compatibility
-        latitude: activeRide.dropoff?.lat || activeRide.dropoff?.latitude || null,
-        longitude: activeRide.dropoff?.lng || activeRide.dropoff?.longitude || null,
-        lat: activeRide.dropoff?.lat || activeRide.dropoff?.latitude || null,
-        lng: activeRide.dropoff?.lng || activeRide.dropoff?.longitude || null,
-        address: activeRide.dropoff?.address || "Dropoff Location"
-      },
-      fare: activeRide.fare || activeRide.estimatedFare || 0,
-      estimatedDistance: activeRide.estimatedDistance || 0,
-      estimatedDuration: activeRide.estimatedDuration || 0,
-      vehicleType: activeRide.vehicleType || "sedan",
-      paymentMethod: activeRide.paymentMethod || "cash",
-      createdAt: activeRide.createdAt,
-      acceptedAt: activeRide.acceptedAt || null,
-      startedAt: activeRide.startTime || null
+      } : null
     };
 
-    sendSuccess(res, { ride: rideResponse }, "Active ride retrieved successfully", 200);
+    sendSuccess(res, rideResponse, "Active ride retrieved successfully", 200);
   } catch (error) {
     console.error("Get active ride error:", error);
     sendError(res, "Failed to retrieve active ride", 500);

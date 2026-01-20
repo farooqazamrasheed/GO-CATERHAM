@@ -481,6 +481,31 @@ class SocketService {
           this.riderLocations.delete(socket.userId);
         }
 
+        // CRITICAL FIX: Clear all active ride intervals for this user
+        // This prevents duplicate intervals when user reconnects
+        if (socket.userId) {
+          // Find and clear all intervals for this user
+          const intervalsToDelete = [];
+          this.activeRideIntervals.forEach((interval, key) => {
+            // Convert key to string before checking
+            const keyString = String(key);
+            if (keyString.includes(socket.userId.toString())) {
+              clearInterval(interval);
+              intervalsToDelete.push(key);
+              console.log(`⚠️  Cleared interval on disconnect: ${keyString}`);
+            }
+          });
+          
+          // Delete the cleared intervals from the map
+          intervalsToDelete.forEach(key => {
+            this.activeRideIntervals.delete(key);
+          });
+          
+          if (intervalsToDelete.length > 0) {
+            console.log(`✅ Cleaned up ${intervalsToDelete.length} active ride interval(s) for user ${socket.userId}`);
+          }
+        }
+
         console.log(`\n${'='.repeat(60)}`);
         console.log(`🔌 [WEBSOCKET DISCONNECTED]`);
         console.log(`   Socket ID: ${socket.id}`);
@@ -1381,13 +1406,21 @@ class SocketService {
    */
   notifyRideStatusSubscribers(rideId, status, rideData) {
     if (this.io) {
-      // FIX: Ensure ride data includes driver, pickup, dropoff for frontend
+      // FRONTEND COMPATIBLE: Format coordinates as latitude/longitude (not lat/lng)
       const notificationData = {
         rideId: rideData._id || rideData.rideId || rideId,
         status,
         driver: rideData.driver || null,
-        pickup: rideData.pickup || null,
-        dropoff: rideData.dropoff || null,
+        pickup: rideData.pickup ? {
+          latitude: rideData.pickup.lat || rideData.pickup.latitude || null,
+          longitude: rideData.pickup.lng || rideData.pickup.longitude || null,
+          address: rideData.pickup.address || "Pickup Location"
+        } : null,
+        dropoff: rideData.dropoff ? {
+          latitude: rideData.dropoff.lat || rideData.dropoff.latitude || null,
+          longitude: rideData.dropoff.lng || rideData.dropoff.longitude || null,
+          address: rideData.dropoff.address || "Dropoff Location"
+        } : null,
         ...rideData,
       };
       
@@ -2415,6 +2448,15 @@ class SocketService {
    */
   subscribeToActiveRide(riderId, rideId) {
     if (this.io) {
+      // CRITICAL FIX: Check if already subscribed to prevent duplicates
+      const intervalKey = `ride_${rideId}_user_${riderId}`;
+      
+      // If interval already exists, don't create a new one
+      if (this.activeRideIntervals.has(intervalKey)) {
+        console.log(`⚠️  Rider ${riderId} already subscribed to ride ${rideId} - skipping duplicate subscription`);
+        return;
+      }
+
       // Join active ride room for real-time updates
       this.io.sockets.sockets.forEach((socket) => {
         if (socket.rooms.has(riderId)) {
@@ -2713,23 +2755,33 @@ class SocketService {
       this.activeRideIntervals.delete(intervalKey);
     }
 
+    // CRITICAL FIX: Clear any existing interval before creating new one
+    // This prevents duplicate intervals when rider reconnects
+    const existingInterval = this.activeRideIntervals.get(intervalKey);
+    if (existingInterval) {
+      console.log(`⚠️  Clearing existing interval for ride ${rideId}, user ${userId}`);
+      clearInterval(existingInterval);
+      this.activeRideIntervals.delete(intervalKey);
+    }
+
     // Send updates every 10 seconds for ride status
-    this.activeRideIntervals.set(
-      intervalKey,
-      setInterval(async () => {
-        try {
-          await this.sendRideStatusUpdate(rideId, userId);
-        } catch (error) {
-          console.error(
-            `Error sending ride status update for ride ${rideId}, user ${userId}:`,
-            error
-          );
-          // Clear interval on persistent errors
-          clearInterval(this.activeRideIntervals.get(intervalKey));
-          this.activeRideIntervals.delete(intervalKey);
-        }
-      }, 10000)
-    ); // 10 seconds
+    const newInterval = setInterval(async () => {
+      try {
+        await this.sendRideStatusUpdate(rideId, userId);
+      } catch (error) {
+        console.error(
+          `Error sending ride status update for ride ${rideId}, user ${userId}:`,
+          error
+        );
+        // Clear interval on persistent errors
+        clearInterval(this.activeRideIntervals.get(intervalKey));
+        this.activeRideIntervals.delete(intervalKey);
+      }
+    }, 10000); // 10 seconds
+    
+    // Store the new interval
+    this.activeRideIntervals.set(intervalKey, newInterval);
+    console.log(`✅ Started active ride updates for ride ${rideId}, user ${userId}`);
   }
 
   /**
