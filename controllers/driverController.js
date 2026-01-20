@@ -343,19 +343,26 @@ exports.updateStatus = async (req, res) => {
       });
 
       // Create or update live location so driver appears in searches
+      const lat = parseFloat(latitude);
+      const lng = parseFloat(longitude);
+      
       const locationData = {
         driver: driver._id,
-        latitude: parseFloat(latitude),
-        longitude: parseFloat(longitude),
+        latitude: lat,
+        longitude: lng,
         heading: heading ? parseFloat(heading) : 0,
         speed: speed ? parseFloat(speed) : 0,
         timestamp: new Date(),
+        location: {
+          type: "Point",
+          coordinates: [lng, lat] // GeoJSON format: [longitude, latitude]
+        }
       };
 
       const locationResult = await LiveLocation.findOneAndUpdate(
         { driver: driver._id },
         locationData,
-        { upsert: true, new: true, setDefaultsOnInsert: true }
+        { upsert: true, new: true, setDefaultsOnInsert: true, runValidators: false }
       );
 
       console.log("DEBUG [updateStatus]: Location saved for online driver:", {
@@ -1312,13 +1319,20 @@ exports.updateLocation = async (req, res) => {
     });
 
     // Update or create live location
+    const lat = parseFloat(latitude);
+    const lng = parseFloat(longitude);
+    
     const locationData = {
       driver: driver._id,
-      latitude: parseFloat(latitude),
-      longitude: parseFloat(longitude),
+      latitude: lat,
+      longitude: lng,
       heading: heading ? parseFloat(heading) : 0,
       speed: speed ? parseFloat(speed) : 0,
       timestamp: timestamp ? new Date(timestamp) : new Date(),
+      location: {
+        type: "Point",
+        coordinates: [lng, lat] // GeoJSON format: [longitude, latitude]
+      }
     };
 
     console.log("DEBUG [updateLocation]: Creating/updating location with data:", locationData);
@@ -1338,6 +1352,7 @@ exports.updateLocation = async (req, res) => {
         upsert: true,
         new: true,
         setDefaultsOnInsert: true,
+        runValidators: false
       }
     );
 

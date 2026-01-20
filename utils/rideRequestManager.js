@@ -20,15 +20,16 @@ class RideRequestManager {
     // Clear any existing timer for this ride
     this.clearTimer(rideId);
 
-    // Set up automatic rejection after 15 seconds
+    // Set up automatic rejection after 30 seconds
     const timer = setTimeout(async () => {
+      console.log('⏰ Timeout fired for ride:', rideId);
       await this.autoRejectRide(rideId);
-    }, 15000); // 15 seconds
+    }, 30000); // 30 seconds
 
     this.activeTimers.set(rideId, timer);
     this.requestQueue.set(rideId, [...availableDrivers]);
 
-    console.log(`Started ride request ${rideId} with 15-second timer`);
+    console.log(`🕐 Setting timeout for ride: ${rideId} (30 seconds)`);
   }
 
   /**
@@ -37,6 +38,9 @@ class RideRequestManager {
    * @param {string} driverId - Driver ID who accepted
    */
   async acceptRide(rideId, driverUserId) {
+    console.log('✅ Driver accepting ride:', rideId);
+    console.log('🚫 Clearing timeout for ride:', rideId);
+    
     // Clear the timer
     this.clearTimer(rideId);
 
@@ -47,9 +51,9 @@ class RideRequestManager {
         throw new Error("Driver not found");
       }
 
-      // Update ride status
+      // Update ride status to going-to-pickup when driver accepts
       await Ride.findByIdAndUpdate(rideId, {
-        status: "accepted",
+        status: "going-to-pickup",
         driver: driver._id, // Use driver document ID, not user ID
         acceptedAt: new Date(),
       });
@@ -153,7 +157,28 @@ class RideRequestManager {
       // Clear timer
       this.clearTimer(rideId);
 
-      // Update ride status
+      // Fetch current ride status before cancelling
+      const currentRide = await Ride.findById(rideId);
+      
+      console.log('⏰ Timeout handler executing for ride:', rideId);
+      console.log('📊 Current ride status:', currentRide?.status);
+      console.log('🔍 Will cancel?', currentRide?.status === 'searching' || currentRide?.status === 'requested' || currentRide?.status === 'pending');
+      
+      // CRITICAL FIX: Only cancel if ride is still in pending/searching state
+      // If driver has already accepted (status = 'accepted'), don't cancel!
+      if (!currentRide) {
+        console.log('⚠️ Ride not found, skipping cancellation');
+        return null;
+      }
+      
+      if (currentRide.status === 'accepted' || currentRide.status === 'going-to-pickup' || currentRide.status === 'arrived' || currentRide.status === 'in_progress' || currentRide.status === 'completed') {
+        console.log('✅ Ride already accepted/in progress, skipping auto-cancellation');
+        // Remove from queue but don't cancel
+        this.requestQueue.delete(rideId);
+        return currentRide;
+      }
+
+      // Update ride status only if still pending
       const ride = await Ride.findByIdAndUpdate(
         rideId,
         {
@@ -168,7 +193,7 @@ class RideRequestManager {
       this.requestQueue.delete(rideId);
 
       console.log(
-        `Ride ${rideId} automatically rejected - no driver response within 15 seconds`
+        `❌ Ride ${rideId} automatically cancelled - no driver response within 30 seconds`
       );
 
       // Send notification to rider about cancellation

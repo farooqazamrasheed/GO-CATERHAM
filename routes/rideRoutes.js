@@ -91,6 +91,11 @@ router.put(
   rideController.rejectRide
 );
 router.put(
+  "/:rideId/arrived",
+  checkPermission("start_ride"),
+  rideController.markDriverArrived
+);
+router.put(
   "/:rideId/start",
   checkPermission("start_ride"),
   rideController.startRide

@@ -14,6 +14,44 @@ exports.updateLocation = async (req, res, next) => {
       speed
     });
 
+    // Validate coordinates
+    if (!latitude || !longitude) {
+      return res.status(400).json({ 
+        success: false, 
+        message: "Latitude and longitude are required" 
+      });
+    }
+
+    const lat = parseFloat(latitude);
+    const lng = parseFloat(longitude);
+
+    if (isNaN(lat) || isNaN(lng)) {
+      console.error('Invalid driver location coordinates in controller:', {
+        userId: req.user._id,
+        latitude,
+        longitude,
+        parsedLat: lat,
+        parsedLng: lng
+      });
+      return res.status(400).json({ 
+        success: false, 
+        message: "Latitude and longitude must be valid numbers" 
+      });
+    }
+
+    // Validate coordinate ranges
+    if (lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+      console.error('Driver location coordinates out of range:', {
+        userId: req.user._id,
+        latitude: lat,
+        longitude: lng
+      });
+      return res.status(400).json({ 
+        success: false, 
+        message: "Invalid latitude or longitude values" 
+      });
+    }
+
     // Get driver details for debugging
     const driver = await Driver.findOne({ user: req.user._id });
     if (driver) {
@@ -33,13 +71,17 @@ exports.updateLocation = async (req, res, next) => {
       { driver: driver ? driver._id : req.user._id },
       {
         driver: driver ? driver._id : req.user._id,
-        latitude,
-        longitude,
-        heading: heading || 0,
-        speed: speed || 0,
-        timestamp: new Date()
+        latitude: lat,
+        longitude: lng,
+        heading: heading ? parseFloat(heading) : 0,
+        speed: speed ? parseFloat(speed) : 0,
+        timestamp: new Date(),
+        location: {
+          type: "Point",
+          coordinates: [lng, lat] // GeoJSON format: [longitude, latitude]
+        }
       },
-      { upsert: true, new: true }
+      { upsert: true, new: true, runValidators: false }
     );
 
     console.log("DEBUG [liveLocation/update]: Location saved:", {
@@ -50,23 +92,31 @@ exports.updateLocation = async (req, res, next) => {
 
     // Notify nearby riders about driver location update
     socketService.notifyNearbyRidersAboutDriverUpdate(req.user._id, {
-      latitude,
-      longitude,
-      heading,
-      speed,
+      latitude: lat,
+      longitude: lng,
+      heading: heading ? parseFloat(heading) : 0,
+      speed: speed ? parseFloat(speed) : 0,
     });
 
     // Notify subscribers of active rides about driver location update
     socketService.notifyRideSubscribersAboutDriverLocation(req.user._id, {
-      latitude,
-      longitude,
-      heading,
-      speed,
+      latitude: lat,
+      longitude: lng,
+      heading: heading ? parseFloat(heading) : 0,
+      speed: speed ? parseFloat(speed) : 0,
       timestamp: location.timestamp,
     });
 
     res.status(200).json({ success: true, location });
   } catch (err) {
-    next(err);
+    // Handle error properly - check if next exists (called from Express) or just log (called from socket)
+    if (next && typeof next === 'function') {
+      next(err);
+    } else {
+      console.error('Error in updateLocation:', err);
+      if (res && !res.headersSent) {
+        res.status(500).json({ success: false, message: 'Failed to update location' });
+      }
+    }
   }
 };

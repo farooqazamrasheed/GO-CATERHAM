@@ -621,9 +621,10 @@ exports.rejectDocument = async (req, res, next) => {
     const { driverId, documentType } = req.params;
     const { rejectionReason } = req.body;
 
-    if (!rejectionReason || rejectionReason.trim() === "") {
-      return sendError(res, "Rejection reason is required", 400);
-    }
+    // Rejection reason is optional - use default if not provided
+    const finalRejectionReason = rejectionReason && rejectionReason.trim() !== "" 
+      ? rejectionReason.trim() 
+      : "Document rejected by admin";
 
     // Validate document type
     const validDocumentTypes = [
@@ -679,13 +680,13 @@ exports.rejectDocument = async (req, res, next) => {
         url: document.url,
         uploadedAt: document.uploadedAt,
         rejectedAt: new Date(),
-        rejectionReason: rejectionReason,
+        rejectionReason: finalRejectionReason,
       });
     }
 
     // Update document rejection status
     document.rejected = true;
-    document.rejectionReason = rejectionReason;
+    document.rejectionReason = finalRejectionReason;
     document.rejectedAt = new Date();
     document.rejectedBy = req.user.id;
     document.rejectionCount = (document.rejectionCount || 0) + 1;
@@ -705,9 +706,9 @@ exports.rejectDocument = async (req, res, next) => {
     socketService.notifyUser(driver.user.toString(), "document_rejected", {
       driverId: driver._id,
       documentType: documentType,
-      rejectionReason: rejectionReason,
+      rejectionReason: finalRejectionReason,
       rejectionCount: document.rejectionCount,
-      message: `Document "${documentType}" has been rejected. Reason: ${rejectionReason}. Please re-upload a valid document.`,
+      message: `Document "${documentType}" has been rejected. Reason: ${finalRejectionReason}. Please re-upload a valid document.`,
       timestamp: new Date()
     });
 
@@ -716,7 +717,7 @@ exports.rejectDocument = async (req, res, next) => {
       documentRejection: {
         documentType: documentType,
         rejected: true,
-        rejectionReason: rejectionReason,
+        rejectionReason: finalRejectionReason,
         rejectionCount: document.rejectionCount
       }
     }, "document_rejected");
@@ -726,7 +727,7 @@ exports.rejectDocument = async (req, res, next) => {
       driverId: driver._id,
       driverName: user?.fullName || "Unknown",
       documentType: documentType,
-      rejectionReason: rejectionReason,
+      rejectionReason: finalRejectionReason,
       rejectedBy: req.user.fullName || req.user.id,
       timestamp: new Date()
     });
@@ -736,7 +737,7 @@ exports.rejectDocument = async (req, res, next) => {
       {
         driver,
         rejectedDocument: documentType,
-        rejectionReason: rejectionReason,
+        rejectionReason: finalRejectionReason,
         rejectionCount: document.rejectionCount,
       },
       "Document rejected successfully",

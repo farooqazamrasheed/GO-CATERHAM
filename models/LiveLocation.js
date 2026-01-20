@@ -10,19 +10,26 @@ const liveLocationSchema = new mongoose.Schema(
     },
     latitude: { 
       type: Number, 
-      required: true 
+      required: true,
+      min: -90,
+      max: 90
     },
     longitude: { 
       type: Number, 
-      required: true 
+      required: true,
+      min: -180,
+      max: 180
     },
     heading: { 
       type: Number, 
-      default: 0 
+      default: 0,
+      min: 0,
+      max: 360
     },
     speed: { 
       type: Number, 
-      default: 0 
+      default: 0,
+      min: 0
     },
     timestamp: { 
       type: Date, 
@@ -51,53 +58,8 @@ liveLocationSchema.index({ "location.coordinates": "2dsphere" });
 // Compound index for efficient driver lookup with timestamp
 liveLocationSchema.index({ driver: 1, timestamp: -1 });
 
-// Pre-save hook to update geospatial field
-liveLocationSchema.pre("save", function () {
-  if (this.latitude && this.longitude) {
-    this.location = {
-      type: "Point",
-      coordinates: [this.longitude, this.latitude], // GeoJSON: [lng, lat]
-    };
-  }
-});
-
-// Pre-update hook for findOneAndUpdate
-liveLocationSchema.pre("findOneAndUpdate", function () {
-  const update = this.getUpdate();
-  if (update.latitude && update.longitude) {
-    this.set({
-      location: {
-        type: "Point",
-        coordinates: [update.longitude, update.latitude], // GeoJSON: [lng, lat]
-      }
-    });
-  }
-});
-
-// Pre-update hook for updateOne
-liveLocationSchema.pre("updateOne", function () {
-  const update = this.getUpdate();
-  if (update.latitude && update.longitude) {
-    this.set({
-      location: {
-        type: "Point",
-        coordinates: [update.longitude, update.latitude],
-      }
-    });
-  }
-});
-
-// Pre-update hook for updateMany
-liveLocationSchema.pre("updateMany", function () {
-  const update = this.getUpdate();
-  if (update.latitude && update.longitude) {
-    this.set({
-      location: {
-        type: "Point",
-        coordinates: [update.longitude, update.latitude],
-      }
-    });
-  }
-});
+// Note: We don't use pre-save or pre-update hooks because they can cause issues with Mongoose
+// Instead, we handle the location field creation in the controller before saving/updating
+// All controllers manually set the location field in the update object before calling findOneAndUpdate
 
 module.exports = mongoose.model("LiveLocation", liveLocationSchema);

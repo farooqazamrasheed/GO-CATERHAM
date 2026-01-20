@@ -125,7 +125,7 @@ function calculateSurgeMultiplier(
   hour,
   dayOfWeek,
   availableDrivers,
-  requestedDrivers = 1
+  requestedDrivers = 1,
 ) {
   let multiplier = 1.0;
 
@@ -154,13 +154,13 @@ function calculateFare(
   dropoffLat,
   dropoffLng,
   vehicleType,
-  durationMinutes = 15
+  durationMinutes = 15,
 ) {
   const distanceKm = calculateDistance(
     pickupLat,
     pickupLng,
     dropoffLat,
-    dropoffLng
+    dropoffLng,
   );
   const distanceMiles = distanceKm * 0.621371; // Convert to miles
 
@@ -177,7 +177,7 @@ function calculateFare(
     now.getHours(),
     now.getDay(),
     10, // Assume 10 drivers available for now
-    1
+    1,
   );
 
   // Apply surge multiplier
@@ -219,9 +219,9 @@ function generateEstimateId() {
 // The database stores as lat/lng, but frontend expects BOTH lat/lng AND latitude/longitude
 function formatRideResponse(ride) {
   if (!ride) return null;
-  
+
   const rideObj = ride.toObject ? ride.toObject() : ride;
-  
+
   // Format pickup with BOTH coordinate formats
   if (rideObj.pickup) {
     rideObj.pickup = {
@@ -229,10 +229,10 @@ function formatRideResponse(ride) {
       lng: rideObj.pickup.lng || rideObj.pickup.longitude || null,
       latitude: rideObj.pickup.lat || rideObj.pickup.latitude || null,
       longitude: rideObj.pickup.lng || rideObj.pickup.longitude || null,
-      address: rideObj.pickup.address || "Pickup Location"
+      address: rideObj.pickup.address || "Pickup Location",
     };
   }
-  
+
   // Format dropoff with BOTH coordinate formats
   if (rideObj.dropoff) {
     rideObj.dropoff = {
@@ -240,10 +240,10 @@ function formatRideResponse(ride) {
       lng: rideObj.dropoff.lng || rideObj.dropoff.longitude || null,
       latitude: rideObj.dropoff.lat || rideObj.dropoff.latitude || null,
       longitude: rideObj.dropoff.lng || rideObj.dropoff.longitude || null,
-      address: rideObj.dropoff.address || "Dropoff Location"
+      address: rideObj.dropoff.address || "Dropoff Location",
     };
   }
-  
+
   return rideObj;
 }
 
@@ -252,57 +252,72 @@ function formatRideResponse(ride) {
 // Backend uses: searching, requested, accepted, in_progress, completed, cancelled
 function mapStatusForFrontend(backendStatus) {
   const statusMap = {
-    'searching': 'pending',
-    'requested': 'pending',
-    'scheduled': 'pending',
-    'accepted': 'accepted',
-    'in_progress': 'in_progress',
-    'completed': 'completed',
-    'cancelled': 'cancelled'
+    searching: "pending",
+    requested: "pending",
+    scheduled: "pending",
+    accepted: "accepted",
+    in_progress: "in_progress",
+    completed: "completed",
+    cancelled: "cancelled",
   };
   return statusMap[backendStatus] || backendStatus;
 }
 
 // FRONTEND COMPATIBILITY: Format complete ride response for frontend
 // Frontend expects specific field names and structure
-function formatRideForFrontend(ride, includeDriver = false, includeRider = false) {
+function formatRideForFrontend(
+  ride,
+  includeDriver = false,
+  includeRider = false,
+) {
   if (!ride) return null;
-  
+
   const rideObj = ride.toObject ? ride.toObject() : ride;
-  
+
   // Base ride object with frontend-expected field names
   const formattedRide = {
     rideId: rideObj._id?.toString() || rideObj.id?.toString(),
     riderId: rideObj.rider?._id?.toString() || rideObj.rider?.toString(),
     driverId: rideObj.driver?._id?.toString() || rideObj.driver?.toString(),
     status: mapStatusForFrontend(rideObj.status),
-    pickup: rideObj.pickup ? {
-      latitude: rideObj.pickup.lat || rideObj.pickup.latitude || null,
-      longitude: rideObj.pickup.lng || rideObj.pickup.longitude || null,
-      address: rideObj.pickup.address || "Pickup Location"
-    } : null,
-    dropoff: rideObj.dropoff ? {
-      latitude: rideObj.dropoff.lat || rideObj.dropoff.latitude || null,
-      longitude: rideObj.dropoff.lng || rideObj.dropoff.longitude || null,
-      address: rideObj.dropoff.address || "Dropoff Location"
-    } : null,
+    pickup: rideObj.pickup
+      ? {
+          latitude: rideObj.pickup.lat || rideObj.pickup.latitude || null,
+          longitude: rideObj.pickup.lng || rideObj.pickup.longitude || null,
+          address: rideObj.pickup.address || "Pickup Location",
+        }
+      : null,
+    dropoff: rideObj.dropoff
+      ? {
+          latitude: rideObj.dropoff.lat || rideObj.dropoff.latitude || null,
+          longitude: rideObj.dropoff.lng || rideObj.dropoff.longitude || null,
+          address: rideObj.dropoff.address || "Dropoff Location",
+        }
+      : null,
     fare: rideObj.estimatedFare || rideObj.fare || null,
     vehicleType: rideObj.vehicleType || null,
     createdAt: rideObj.createdAt?.toISOString() || new Date().toISOString(),
   };
-  
+
   // Optional fields
-  if (rideObj.acceptedAt) formattedRide.acceptedAt = rideObj.acceptedAt.toISOString();
-  if (rideObj.startTime) formattedRide.startedAt = rideObj.startTime.toISOString();
-  if (rideObj.endTime) formattedRide.completedAt = rideObj.endTime.toISOString();
-  if (rideObj.cancelledAt) formattedRide.cancelledAt = rideObj.cancelledAt.toISOString();
-  if (rideObj.cancellationReason) formattedRide.cancellationReason = rideObj.cancellationReason;
+  if (rideObj.acceptedAt)
+    formattedRide.acceptedAt = rideObj.acceptedAt.toISOString();
+  if (rideObj.startTime)
+    formattedRide.startedAt = rideObj.startTime.toISOString();
+  if (rideObj.endTime)
+    formattedRide.completedAt = rideObj.endTime.toISOString();
+  if (rideObj.cancelledAt)
+    formattedRide.cancelledAt = rideObj.cancelledAt.toISOString();
+  if (rideObj.cancellationReason)
+    formattedRide.cancellationReason = rideObj.cancellationReason;
   if (rideObj.cancelledBy) formattedRide.cancelledBy = rideObj.cancelledBy;
   if (rideObj.distance) formattedRide.distance = rideObj.distance;
   if (rideObj.duration) formattedRide.duration = rideObj.duration;
-  if (rideObj.driverEarnings !== undefined) formattedRide.earnings = rideObj.driverEarnings;
-  if (rideObj.cancellationFee !== undefined) formattedRide.cancellationFee = rideObj.cancellationFee;
-  
+  if (rideObj.driverEarnings !== undefined)
+    formattedRide.earnings = rideObj.driverEarnings;
+  if (rideObj.cancellationFee !== undefined)
+    formattedRide.cancellationFee = rideObj.cancellationFee;
+
   // Include driver info if requested
   if (includeDriver && rideObj.driver) {
     const driver = rideObj.driver;
@@ -312,10 +327,10 @@ function formatRideForFrontend(ride, includeDriver = false, includeRider = false
       phone: driver.user?.phone || driver.phone || null,
       vehicleType: driver.vehicleType || null,
       vehicleNumber: driver.vehicle?.plateNumber || null,
-      rating: driver.rating || 5.0
+      rating: driver.rating || 5.0,
     };
   }
-  
+
   return formattedRide;
 }
 
@@ -365,7 +380,7 @@ exports.getFareEstimate = async (req, res) => {
       return sendError(
         res,
         "All location and vehicle type fields are required, and coordinates must be valid numbers",
-        400
+        400,
       );
     }
 
@@ -374,7 +389,7 @@ exports.getFareEstimate = async (req, res) => {
       return sendError(
         res,
         "Invalid vehicle type. Must be sedan, SUV, or electric",
-        400
+        400,
       );
     }
 
@@ -384,21 +399,21 @@ exports.getFareEstimate = async (req, res) => {
       pickupLngNum,
       dropoffLatNum,
       dropoffLngNum,
-      vehicleType
+      vehicleType,
     );
 
     // Count available drivers near pickup location
     const availableDrivers = await countAvailableDrivers(
       pickupLatNum,
       pickupLngNum,
-      vehicleType
+      vehicleType,
     );
 
     // Calculate estimated pickup time (average of closest drivers' ETAs)
     const estimatedPickupTime = await calculateEstimatedPickupTime(
       pickupLatNum,
       pickupLngNum,
-      vehicleType
+      vehicleType,
     );
 
     // Generate estimate ID and save to database
@@ -498,7 +513,7 @@ exports.bookRide = async (req, res) => {
     const scheduledTime = req.body.scheduledTime || req.query.scheduledTime; // Optional: for future bookings
     const specialInstructions =
       req.body.specialInstructions || req.query.specialInstructions; // Optional
-    
+
     // CRITICAL: Extract driverId for targeted ride requests (BACKEND_REQUIREMENTS.md)
     // When driverId is provided, the ride request should ONLY be sent to that specific driver
     const targetDriverId = req.body.driverId || req.query.driverId || null;
@@ -564,7 +579,8 @@ exports.bookRide = async (req, res) => {
       req.body.destination?.address ||
       req.body.dropoffLocation?.address ||
       "Dropoff Location"; // Default if not provided
-    const vehicleType = req.body.vehicleType || req.query.vehicleType || "sedan"; // Default to sedan
+    const vehicleType =
+      req.body.vehicleType || req.query.vehicleType || "sedan"; // Default to sedan
 
     console.log("Extracted values:", {
       estimateId,
@@ -625,17 +641,17 @@ exports.bookRide = async (req, res) => {
           vehicleType: vehicleType || "MISSING",
         });
         console.log(
-          "❌ RETURNING 400 ERROR - This is where the error is coming from!"
+          "❌ RETURNING 400 ERROR - This is where the error is coming from!",
         );
         return sendError(
           res,
           "Either estimateId or complete location details (pickup, dropoff, vehicleType) are required for immediate bookings",
-          400
+          400,
         );
       }
 
       console.log(
-        "✅ All location data present, proceeding with on-the-fly calculation"
+        "✅ All location data present, proceeding with on-the-fly calculation",
       );
 
       // Convert to numbers
@@ -660,7 +676,7 @@ exports.bookRide = async (req, res) => {
         pickupLngNum,
         dropoffLatNum,
         dropoffLngNum,
-        vehicleType
+        vehicleType,
       );
 
       // Create temporary fare estimate object (not saved to DB for immediate use)
@@ -684,7 +700,7 @@ exports.bookRide = async (req, res) => {
 
       console.log(
         "Created on-the-fly fare estimate for immediate booking:",
-        fareEstimate
+        fareEstimate,
       );
     }
 
@@ -703,7 +719,7 @@ exports.bookRide = async (req, res) => {
         return sendError(
           res,
           "Cannot schedule rides more than 7 days in advance",
-          400
+          400,
         );
       }
     }
@@ -712,7 +728,11 @@ exports.bookRide = async (req, res) => {
     const rideData = {
       rider: req.user.id,
       driver: targetDriverId || null, // Set driver if targeted request
-      status: scheduledTime ? "scheduled" : (targetDriverId ? "requested" : "searching"),
+      status: scheduledTime
+        ? "scheduled"
+        : targetDriverId
+          ? "requested"
+          : "searching",
       scheduledTime: scheduledDate,
       specialInstructions,
       paymentMethod,
@@ -766,46 +786,52 @@ exports.bookRide = async (req, res) => {
     // When driverId is provided, send request ONLY to that driver
     // =====================================================
     if (!scheduledTime && targetDriverId) {
-      console.log(`🎯 [TARGETED REQUEST] Sending ride request ONLY to driver: ${targetDriverId}`);
-      
+      console.log(
+        `🎯 [TARGETED REQUEST] Sending ride request ONLY to driver: ${targetDriverId}`,
+      );
+
       // Verify the target driver exists and is available
-      const targetDriver = await Driver.findById(targetDriverId).populate("user", "fullName phone");
-      
+      const targetDriver = await Driver.findById(targetDriverId).populate(
+        "user",
+        "fullName phone",
+      );
+
       if (!targetDriver) {
         return sendError(res, "Selected driver not found", 404);
       }
-      
+
       if (targetDriver.status !== "online") {
         return sendError(res, "Selected driver is not available", 400);
       }
-      
+
       if (targetDriver.isApproved !== "approved") {
         return sendError(res, "Selected driver is not approved", 400);
       }
-      
+
       // Get driver's current location for ETA calculation
-      const driverLocation = await LiveLocation.findOne({ driver: targetDriverId })
-        .sort({ timestamp: -1 });
-      
+      const driverLocation = await LiveLocation.findOne({
+        driver: targetDriverId,
+      }).sort({ timestamp: -1 });
+
       let driverDistance = null;
       let driverEta = null;
-      
+
       if (driverLocation && fareEstimate) {
         driverDistance = calculateDistance(
           driverLocation.latitude,
           driverLocation.longitude,
           parseFloat(fareEstimate.pickup.lat),
-          parseFloat(fareEstimate.pickup.lng)
+          parseFloat(fareEstimate.pickup.lng),
         );
         driverEta = calculateETA(driverDistance, driverLocation.speed || 30);
       }
-      
+
       // Populate ride with rider info for notification
       await ride.populate("rider", "fullName phone profilePicture");
-      
+
       // Get the driver's User ID (not Driver ID) for socket notification
       const driverUserId = targetDriver.user._id.toString();
-      
+
       // Send ride request ONLY to this specific driver
       socketService.notifyRideRequest(targetDriverId, {
         ...ride.toObject(),
@@ -819,11 +845,13 @@ exports.bookRide = async (req, res) => {
         eta: driverEta,
         vehicleType: ride.vehicleType,
         estimatedDistance: ride.estimatedDistance,
-        expiresAt: new Date(Date.now() + 60000) // 1 minute expiry as per spec
+        expiresAt: new Date(Date.now() + 60000), // 1 minute expiry as per spec
       });
-      
-      console.log(`✅ [TARGETED REQUEST] Ride request sent ONLY to driver ${targetDriverId} (User: ${driverUserId})`);
-      
+
+      console.log(
+        `✅ [TARGETED REQUEST] Ride request sent ONLY to driver ${targetDriverId} (User: ${driverUserId})`,
+      );
+
       // Notify rider that request was sent to specific driver
       socketService.notifyRideStatus(req.user.id, "pending", {
         ...ride.toObject(),
@@ -831,14 +859,14 @@ exports.bookRide = async (req, res) => {
           id: targetDriver._id,
           name: targetDriver.user?.fullName || "Unknown Driver",
           vehicleType: targetDriver.vehicleType,
-          rating: targetDriver.rating || 5.0
+          rating: targetDriver.rating || 5.0,
         },
-        message: `Ride request sent to ${targetDriver.user?.fullName || 'selected driver'}. Waiting for response...`
+        message: `Ride request sent to ${targetDriver.user?.fullName || "selected driver"}. Waiting for response...`,
       });
-      
+
       // Start timer for this single driver (60 seconds as per spec)
       rideRequestManager.startRideRequest(ride._id, [targetDriverId]);
-      
+
       const response = {
         rideId: ride._id,
         status: ride.status,
@@ -847,13 +875,15 @@ exports.bookRide = async (req, res) => {
           name: targetDriver.user?.fullName || "Unknown Driver",
           vehicleType: targetDriver.vehicleType,
           rating: targetDriver.rating || 5.0,
-          distance: driverDistance ? Math.round(driverDistance * 10) / 10 : null,
-          eta: driverEta
+          distance: driverDistance
+            ? Math.round(driverDistance * 10) / 10
+            : null,
+          eta: driverEta,
         },
-        message: `Ride request sent to ${targetDriver.user?.fullName || 'selected driver'}. Waiting for response...`,
-        expiresAt: new Date(Date.now() + 60000)
+        message: `Ride request sent to ${targetDriver.user?.fullName || "selected driver"}. Waiting for response...`,
+        expiresAt: new Date(Date.now() + 60000),
       };
-      
+
       if (fareEstimate) {
         response.fareEstimate = {
           total: fareEstimate.fareBreakdown.total,
@@ -861,7 +891,7 @@ exports.bookRide = async (req, res) => {
           breakdown: fareEstimate.fareBreakdown,
         };
       }
-      
+
       return sendSuccess(res, response, "Ride request sent to driver", 201);
     }
     // =====================================================
@@ -887,13 +917,13 @@ exports.bookRide = async (req, res) => {
         socketService.notifyRideStatus(
           assignedDriver._id.toString(),
           "assigned",
-          ride
+          ride,
         );
       } else if (availableDrivers.length > 0) {
         // Start ride request timer for available drivers
         rideRequestManager.startRideRequest(
           ride._id,
-          availableDrivers.map((d) => d.driver._id)
+          availableDrivers.map((d) => d.driver._id),
         );
 
         // Send ride request notifications to all available drivers
@@ -925,7 +955,7 @@ exports.bookRide = async (req, res) => {
                 timeLeft: 15,
                 createdAt: ride.createdAt,
               },
-            ]
+            ],
           );
         });
 
@@ -942,7 +972,7 @@ exports.bookRide = async (req, res) => {
 
     // CRITICAL FIX: Format ride response for frontend compatibility
     const formattedRide = formatRideForFrontend(ride, false, false);
-    
+
     // Wrap in data.ride structure as frontend expects
     const response = {
       ride: {
@@ -950,7 +980,7 @@ exports.bookRide = async (req, res) => {
         estimatedPickupTime,
         driverAssigned: !!assignedDriver,
         scheduledTime: scheduledTime ? scheduledDate.toISOString() : undefined,
-      }
+      },
     };
 
     // Include fare details if estimate was used
@@ -965,8 +995,8 @@ exports.bookRide = async (req, res) => {
     const message = scheduledTime
       ? `Ride scheduled for ${scheduledDate.toLocaleString()}`
       : assignedDriver
-      ? `Driver assigned! Estimated pickup in ${estimatedPickupTime} minutes`
-      : "Searching for available driver...";
+        ? `Driver assigned! Estimated pickup in ${estimatedPickupTime} minutes`
+        : "Searching for available driver...";
 
     sendSuccess(res, response, message, 201);
   } catch (error) {
@@ -983,19 +1013,19 @@ async function countAvailableDrivers(pickupLat, pickupLng, vehicleType) {
       pickupLat,
       pickupLng,
       "vehicleType:",
-      vehicleType
+      vehicleType,
     );
     const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
     console.log(
       "DEBUG: Looking for locations since:",
-      fiveMinutesAgo.toISOString()
+      fiveMinutesAgo.toISOString(),
     );
 
     // First, check total LiveLocation records in DB
     const totalLocations = await LiveLocation.countDocuments();
     console.log(
       "DEBUG: Total LiveLocation records in database:",
-      totalLocations
+      totalLocations,
     );
 
     const recentLocations = await LiveLocation.find({
@@ -1005,7 +1035,7 @@ async function countAvailableDrivers(pickupLat, pickupLng, vehicleType) {
     console.log(
       "DEBUG: Found",
       recentLocations.length,
-      "recent locations (within last 5 min)"
+      "recent locations (within last 5 min)",
     );
 
     // Log details of each recent location for debugging
@@ -1082,7 +1112,7 @@ async function countAvailableDrivers(pickupLat, pickupLng, vehicleType) {
             driverId: location.driver._id,
             lat: location.latitude,
             lng: location.longitude,
-          }
+          },
         );
         // For testing: Allow drivers outside boundary
         // In production, uncomment the following:
@@ -1095,7 +1125,7 @@ async function countAvailableDrivers(pickupLat, pickupLng, vehicleType) {
         pickupLat,
         pickupLng,
         location.latitude,
-        location.longitude
+        location.longitude,
       );
       if (distance <= 10) {
         availableCount++;
@@ -1110,7 +1140,7 @@ async function countAvailableDrivers(pickupLat, pickupLng, vehicleType) {
       "available:",
       availableCount,
       "filtered:",
-      filteredOut
+      filteredOut,
     );
     return availableCount;
   } catch (error) {
@@ -1145,7 +1175,7 @@ async function calculateEstimatedPickupTime(pickupLat, pickupLng, vehicleType) {
       const inBoundary = isInSurrey(location.latitude, location.longitude);
       if (!inBoundary) {
         console.log(
-          "DEBUG [calculateEstimatedPickupTime]: Driver outside Surrey (allowing for testing)"
+          "DEBUG [calculateEstimatedPickupTime]: Driver outside Surrey (allowing for testing)",
         );
         // For production, uncomment: continue;
       }
@@ -1154,7 +1184,7 @@ async function calculateEstimatedPickupTime(pickupLat, pickupLng, vehicleType) {
         pickupLat,
         pickupLng,
         location.latitude,
-        location.longitude
+        location.longitude,
       );
       if (distance <= 10) {
         const eta = calculateETA(distance, location.speed || 30);
@@ -1203,7 +1233,7 @@ async function assignDriverToRide(rideId, fareEstimate) {
       const inBoundary = isInSurrey(location.latitude, location.longitude);
       if (!inBoundary) {
         console.log(
-          "DEBUG [getAvailableDriversForRide]: Driver outside Surrey (allowing for testing)"
+          "DEBUG [getAvailableDriversForRide]: Driver outside Surrey (allowing for testing)",
         );
         // For production, uncomment: continue;
       }
@@ -1212,7 +1242,7 @@ async function assignDriverToRide(rideId, fareEstimate) {
         fareEstimate.pickup.lat,
         fareEstimate.pickup.lng,
         location.latitude,
-        location.longitude
+        location.longitude,
       );
 
       if (distance <= 10) {
@@ -1287,14 +1317,14 @@ exports.acceptRide = async (req, res) => {
           driverLiveLocation.latitude,
           driverLiveLocation.longitude,
           parseFloat(ride.pickup.lat),
-          parseFloat(ride.pickup.lng)
+          parseFloat(ride.pickup.lng),
         );
         driverDistanceToPickup = Math.round(driverDistanceToPickup * 10) / 10; // Round to 1 decimal
 
         // Calculate ETA based on distance and speed (default 30 km/h if no speed)
         driverEtaToPickup = calculateETA(
           driverDistanceToPickup,
-          driverLiveLocation.speed || 30
+          driverLiveLocation.speed || 30,
         );
       }
     }
@@ -1304,17 +1334,21 @@ exports.acceptRide = async (req, res) => {
     // Subscribe both rider and driver to ride status updates for real-time location tracking
     socketService.subscribeToRideStatusUpdates(
       ride.rider._id.toString(),
-      ride._id.toString()
+      ride._id.toString(),
     );
     socketService.subscribeToRideStatusUpdates(driverId, ride._id.toString());
 
     // 1. Notify rider about ride acceptance with driver location
-    socketService.notifyRideStatus(ride.rider._id.toString(), "accepted", {
-      ...ride.toObject(),
-      driverLocation,
-      driverDistanceToPickup,
-      driverEtaToPickup,
-    });
+    socketService.notifyRideStatus(
+      ride.rider._id.toString(),
+      "going-to-pickup",
+      {
+        ...ride.toObject(),
+        driverLocation,
+        driverDistanceToPickup,
+        driverEtaToPickup,
+      },
+    );
 
     // 2. Notify driver about successful acceptance and ride details
     socketService.notifyUser(driverId, "ride_accepted_success", {
@@ -1347,7 +1381,7 @@ exports.acceptRide = async (req, res) => {
           acceptedAt: ride.acceptedAt,
         },
       },
-      "ride_accepted"
+      "ride_accepted",
     );
 
     // 4. Update rider dashboard with driver assignment including location
@@ -1356,7 +1390,7 @@ exports.acceptRide = async (req, res) => {
       {
         currentRide: {
           rideId: ride._id,
-          status: "accepted",
+          status: "going-to-pickup",
           driver: {
             id: ride.driver._id,
             name: ride.driver.user?.fullName || "Unknown Driver",
@@ -1380,7 +1414,7 @@ exports.acceptRide = async (req, res) => {
           driverEtaToPickup,
         },
       },
-      "driver_assigned"
+      "driver_assigned",
     );
 
     // 5. Send dedicated driver location event to rider
@@ -1395,7 +1429,7 @@ exports.acceptRide = async (req, res) => {
           distanceToPickup: driverDistanceToPickup,
           etaToPickup: driverEtaToPickup,
           timestamp: new Date(),
-        }
+        },
       );
     }
 
@@ -1407,37 +1441,43 @@ exports.acceptRide = async (req, res) => {
       // Find all sockets for this rider and subscribe them to driver location room
       const riderId = ride.rider._id.toString();
       const driverIdStr = ride.driver._id.toString();
-      
-      console.log(`\n${'='.repeat(60)}`);
+
+      console.log(`\n${"=".repeat(60)}`);
       console.log(`📍 [AUTO-SUBSCRIBE DEBUG]`);
       console.log(`   Rider ID: ${riderId}`);
       console.log(`   Driver ID (MongoDB): ${driverIdStr}`);
       console.log(`   Target Room: driver_location:${driverIdStr}`);
-      console.log(`   Connected Sockets: ${socketService.io.sockets.sockets.size}`);
-      
+      console.log(
+        `   Connected Sockets: ${socketService.io.sockets.sockets.size}`,
+      );
+
       let subscribedCount = 0;
       socketService.io.sockets.sockets.forEach((socket) => {
-        console.log(`   Socket ${socket.id}: userId=${socket.userId}, matches=${socket.userId === riderId}`);
+        console.log(
+          `   Socket ${socket.id}: userId=${socket.userId}, matches=${socket.userId === riderId}`,
+        );
         if (socket.userId === riderId) {
           socket.join(`driver_location:${driverIdStr}`);
           subscribedCount++;
-          console.log(`   ✅ Subscribed socket ${socket.id} to driver_location:${driverIdStr}`);
-          
+          console.log(
+            `   ✅ Subscribed socket ${socket.id} to driver_location:${driverIdStr}`,
+          );
+
           // Verify subscription
           const rooms = Array.from(socket.rooms);
-          console.log(`   Socket rooms after join: ${rooms.join(', ')}`);
+          console.log(`   Socket rooms after join: ${rooms.join(", ")}`);
         }
       });
-      
+
       console.log(`   Total subscribed: ${subscribedCount}`);
-      console.log(`${'='.repeat(60)}\n`);
-      
+      console.log(`${"=".repeat(60)}\n`);
+
       // Send immediate confirmation to rider
       if (subscribedCount > 0) {
         socketService.notifyUser(riderId, "driver_tracking_started", {
           driverId: driverIdStr,
           message: "Real-time driver tracking is now active",
-          timestamp: new Date()
+          timestamp: new Date(),
         });
       }
     }
@@ -1458,12 +1498,12 @@ exports.acceptRide = async (req, res) => {
       await notificationService.sendRideAcceptedNotification(
         ride.rider,
         ride.driver,
-        ride
+        ride,
       );
     } catch (notificationError) {
       console.error(
         "Ride accepted notification failed:",
-        notificationError.message
+        notificationError.message,
       );
     }
 
@@ -1540,7 +1580,7 @@ exports.rejectRide = async (req, res) => {
           "A driver has rejected your ride request. We're finding another driver for you.",
         reason: reason || "Driver unavailable",
         timestamp: new Date(),
-      }
+      },
     );
 
     // 2. Update rider dashboard with rejection status
@@ -1550,7 +1590,7 @@ exports.rejectRide = async (req, res) => {
         rideStatus: "searching",
         message: "Driver rejected - searching for another driver",
       },
-      "ride_update"
+      "ride_update",
     );
 
     // 3. Notify admin about ride rejection
@@ -1563,13 +1603,70 @@ exports.rejectRide = async (req, res) => {
         rejectedRideId: rideId,
         message: "Ride request rejected successfully",
       },
-      "ride_rejected"
+      "ride_rejected",
     );
 
     sendSuccess(res, null, "Ride request rejected", 200);
   } catch (error) {
     console.error("Reject ride error:", error);
     sendError(res, error.message || "Failed to reject ride", 500);
+  }
+};
+
+// Mark driver arrived at pickup location
+exports.markDriverArrived = async (req, res) => {
+  try {
+    const ride = await Ride.findById(req.params.rideId).populate("driver");
+    if (!ride) {
+      return sendError(res, "Ride not found", 404);
+    }
+
+    // Check if driver is authorized
+    if (!ride.driver || ride.driver.user.toString() !== req.user.id) {
+      return sendError(res, "You are not authorized to update this ride", 403);
+    }
+
+    // Check if ride can be marked as arrived
+    if (!["assigned", "accepted", "going-to-pickup"].includes(ride.status)) {
+      return sendError(
+        res,
+        "Cannot mark arrival - ride is not in correct status",
+        400,
+      );
+    }
+
+    // Update ride status to arrived
+    ride.status = "arrived";
+    await ride.save();
+
+    // Send notification to rider about driver arrival
+    socketService.notifyUser(ride.rider.toString(), "driver_arrived", {
+      rideId: ride._id,
+      driverId: ride.driver._id,
+      message: "Your driver has arrived at the pickup location!",
+      timestamp: new Date(),
+    });
+
+    // Send ride status update notification
+    socketService.notifyRideStatus(ride.rider.toString(), "arrived", ride);
+
+    // Notify admins
+    await socketService.notifyAdminRideUpdate(ride);
+
+    // Trigger immediate active ride update for real-time tracking
+    socketService.sendActiveRideUpdate(ride._id.toString());
+
+    // Format ride response
+    const formattedRide = formatRideResponse(ride);
+    sendSuccess(
+      res,
+      { ride: formattedRide },
+      "Driver marked as arrived successfully",
+      200,
+    );
+  } catch (error) {
+    console.error("Mark driver arrived error:", error);
+    sendError(res, "Failed to mark driver as arrived", 500);
   }
 };
 
@@ -1587,7 +1684,11 @@ exports.startRide = async (req, res) => {
     }
 
     // Check if ride can be started
-    if (!["assigned", "accepted"].includes(ride.status)) {
+    if (
+      !["assigned", "accepted", "going-to-pickup", "arrived"].includes(
+        ride.status,
+      )
+    ) {
       return sendError(res, "Ride cannot be started in current status", 400);
     }
 
@@ -1642,7 +1743,7 @@ exports.completeRide = async (req, res) => {
       return sendError(
         res,
         "You are not authorized to complete this ride",
-        403
+        403,
       );
     }
 
@@ -1662,7 +1763,7 @@ exports.completeRide = async (req, res) => {
         ride.dropoff.lat,
         ride.dropoff.lng,
         ride.vehicleType,
-        actualDuration
+        actualDuration,
       );
       finalFare = fareCalculation.fareBreakdown.total;
 
@@ -1738,7 +1839,7 @@ exports.completeRide = async (req, res) => {
             balance: wallet.balance,
             threshold: 10,
             message: `Your wallet balance is low: £${wallet.balance.toFixed(
-              2
+              2,
             )}`,
           });
         }
@@ -1771,7 +1872,7 @@ exports.completeRide = async (req, res) => {
         // This should be handled by frontend before ride completion
         paymentStatus = "pending";
         console.warn(
-          `Ride ${ride._id} completed with card payment but no paid payment record found`
+          `Ride ${ride._id} completed with card payment but no paid payment record found`,
         );
       }
     } else if (ride.paymentMethod === "cash") {
@@ -1875,7 +1976,7 @@ exports.completeRide = async (req, res) => {
         message:
           "Ride completed successfully! Earnings have been added to your account.",
         nextStatus: "available", // Driver becomes available for new rides
-      }
+      },
     );
 
     // 4. Update driver dashboard with completion status and earnings
@@ -1894,7 +1995,7 @@ exports.completeRide = async (req, res) => {
           currency: "GBP",
         },
       },
-      "ride_completed"
+      "ride_completed",
     );
 
     // 5. Send real-time earnings update notification to driver
@@ -1936,7 +2037,7 @@ exports.completeRide = async (req, res) => {
           currency: "GBP",
         },
       },
-      "ride_completed"
+      "ride_completed",
     );
 
     // 6. Notify rider about ride history update (new ride added to history)
@@ -1996,7 +2097,7 @@ exports.completeRide = async (req, res) => {
     } catch (notificationError) {
       console.error(
         "Ride completed notification failed:",
-        notificationError.message
+        notificationError.message,
       );
     }
 
@@ -2103,14 +2204,14 @@ exports.getRideStatus = async (req, res) => {
         now.getHours(),
         now.getDay(),
         10, // Assume 10 drivers available
-        1
+        1,
       );
 
       const subtotal = (baseFare + distanceFare + timeFare) * surgeMultiplier;
       const tax = subtotal * FARE_CONFIG.taxRate;
       currentFare = Math.max(
         subtotal + tax,
-        FARE_CONFIG.minimumFare[ride.vehicleType]
+        FARE_CONFIG.minimumFare[ride.vehicleType],
       );
 
       fareBreakdown = {
@@ -2133,7 +2234,7 @@ exports.getRideStatus = async (req, res) => {
         driverLocation.lat,
         driverLocation.lng,
         ride.pickup.lat,
-        ride.pickup.lng
+        ride.pickup.lng,
       );
       pickupEta = calculateETA(distanceToPickup, driverLocation.speed || 30);
     }
@@ -2143,7 +2244,7 @@ exports.getRideStatus = async (req, res) => {
         driverLocation.lat,
         driverLocation.lng,
         ride.dropoff.lat,
-        ride.dropoff.lng
+        ride.dropoff.lng,
       );
       dropoffEta = calculateETA(distanceToDropoff, driverLocation.speed || 30);
     }
@@ -2164,7 +2265,7 @@ exports.getRideStatus = async (req, res) => {
         driverLocation.lat,
         driverLocation.lng,
         ride.dropoff.lat,
-        ride.dropoff.lng
+        ride.dropoff.lng,
       );
     }
 
@@ -2299,7 +2400,7 @@ exports.getDriverLocation = async (req, res) => {
       return sendError(
         res,
         "You are not authorized to view this ride's driver location",
-        403
+        403,
       );
     }
 
@@ -2308,7 +2409,7 @@ exports.getDriverLocation = async (req, res) => {
       return sendError(
         res,
         "Driver location is only available for active rides",
-        400
+        400,
       );
     }
 
@@ -2356,14 +2457,14 @@ exports.getDriverLocation = async (req, res) => {
         driverLiveLocation.latitude,
         driverLiveLocation.longitude,
         parseFloat(targetLocation.lat),
-        parseFloat(targetLocation.lng)
+        parseFloat(targetLocation.lng),
       );
       distanceToTarget = Math.round(distanceToTarget * 10) / 10; // Round to 1 decimal (km)
 
       // Calculate ETA based on distance and speed
       etaToTarget = calculateETA(
         distanceToTarget,
-        driverLiveLocation.speed || 30
+        driverLiveLocation.speed || 30,
       );
     }
 
@@ -2410,7 +2511,16 @@ exports.getActiveRide = async (req, res) => {
     // Find active ride for this rider
     const activeRide = await Ride.findOne({
       rider: riderId,
-      status: { $in: ["searching", "assigned", "accepted", "in_progress"] },
+      status: {
+        $in: [
+          "searching",
+          "assigned",
+          "accepted",
+          "going-to-pickup",
+          "arrived",
+          "in_progress",
+        ],
+      },
     })
       .populate({
         path: "driver",
@@ -2439,7 +2549,13 @@ exports.getActiveRide = async (req, res) => {
     let driverLocation = null;
     if (
       activeRide.driver &&
-      ["assigned", "accepted", "in_progress"].includes(activeRide.status)
+      [
+        "assigned",
+        "accepted",
+        "going-to-pickup",
+        "arrived",
+        "in_progress",
+      ].includes(activeRide.status)
     ) {
       const recentLocation = await LiveLocation.findOne({
         driver: activeRide.driver._id,
@@ -2470,7 +2586,7 @@ exports.getActiveRide = async (req, res) => {
         driverLocation.lat,
         driverLocation.lng,
         activeRide.pickup.lat,
-        activeRide.pickup.lng
+        activeRide.pickup.lng,
       );
       pickupEta = calculateETA(distanceToPickup, driverLocation.speed || 30);
     }
@@ -2484,7 +2600,7 @@ exports.getActiveRide = async (req, res) => {
         driverLocation.lat,
         driverLocation.lng,
         activeRide.dropoff.lat,
-        activeRide.dropoff.lng
+        activeRide.dropoff.lng,
       );
       dropoffEta = calculateETA(distanceToDropoff, driverLocation.speed || 30);
     }
@@ -2654,13 +2770,13 @@ exports.cancelRide = async (req, res) => {
     socketService.notifyRideCancelled(
       ride.rider.toString(),
       cancellationReason,
-      ride
+      ride,
     );
     if (ride.driver) {
       socketService.notifyRideCancelled(
         ride.driver.toString(),
         cancellationReason,
-        ride
+        ride,
       );
 
       // Update driver dashboard with cancelled ride status
@@ -2671,7 +2787,7 @@ exports.cancelRide = async (req, res) => {
           status: "available", // Driver becomes available again
           message: "Ride cancelled - you are now available for new rides",
         },
-        "ride_cancelled"
+        "ride_cancelled",
       );
     }
 
@@ -2858,7 +2974,7 @@ exports.addTip = async (req, res) => {
           timestamp: new Date(),
         },
       },
-      "tip_received"
+      "tip_received",
     );
 
     // 2. Send real-time earnings update notification to driver for tip
@@ -2887,7 +3003,7 @@ exports.addTip = async (req, res) => {
         walletBalance: wallet.balance,
         currency: "GBP",
       },
-      "tip_transaction"
+      "tip_transaction",
     );
 
     // 3. Send push notification to driver
@@ -2921,7 +3037,7 @@ exports.addTip = async (req, res) => {
         walletBalance: wallet.balance,
       },
       "Tip added successfully",
-      200
+      200,
     );
   } catch (error) {
     console.error("Add tip error:", error);
@@ -2953,7 +3069,7 @@ exports.rateDriver = async (req, res) => {
       return sendError(
         res,
         "You can only rate rides you were the rider for",
-        403
+        403,
       );
     }
 
@@ -3012,7 +3128,7 @@ exports.rateDriver = async (req, res) => {
           averageRating: updatedDriver.rating,
         },
       },
-      "rating_received"
+      "rating_received",
     );
 
     // 2. Admin Notifications: Alert admins about new ratings for monitoring
@@ -3062,7 +3178,7 @@ exports.rateDriver = async (req, res) => {
         comment,
       },
       "Driver rated successfully",
-      200
+      200,
     );
   } catch (error) {
     console.error("Rate driver error:", error);
@@ -3092,7 +3208,7 @@ exports.rateRider = async (req, res) => {
       return sendError(
         res,
         "You can only rate rides you were the driver for",
-        403
+        403,
       );
     }
 
@@ -3136,7 +3252,7 @@ exports.rateRider = async (req, res) => {
         comment,
       },
       "Rider rated successfully",
-      200
+      200,
     );
   } catch (error) {
     console.error("Rate rider error:", error);
@@ -3224,14 +3340,14 @@ function encodePoint(lat, lng) {
       ((latInt >> 5) & 0x1f) | 0x20,
       ((latInt >> 10) & 0x1f) | 0x20,
       ((latInt >> 15) & 0x1f) | 0x20,
-      ((latInt >> 20) & 0x1f) | 0x20
+      ((latInt >> 20) & 0x1f) | 0x20,
     ) +
     String.fromCharCode(
       (lngInt & 0x1f) | 0x20,
       ((lngInt >> 5) & 0x1f) | 0x20,
       ((lngInt >> 10) & 0x1f) | 0x20,
       ((lngInt >> 15) & 0x1f) | 0x20,
-      ((lngInt >> 20) & 0x1f) | 0x20
+      ((lngInt >> 20) & 0x1f) | 0x20,
     )
   );
 }

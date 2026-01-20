@@ -16,13 +16,28 @@ exports.updateLocation = async (req, res) => {
       return sendError(res, "Latitude and longitude are required", 400);
     }
 
+    const lat = parseFloat(latitude);
+    const lng = parseFloat(longitude);
+
+    // Validate parsed coordinates
+    if (isNaN(lat) || isNaN(lng)) {
+      console.error('Invalid rider location coordinates:', {
+        riderId,
+        latitude,
+        longitude,
+        parsedLat: lat,
+        parsedLng: lng
+      });
+      return sendError(res, "Latitude and longitude must be valid numbers", 400);
+    }
+
     // Validate coordinate ranges
-    if (
-      latitude < -90 ||
-      latitude > 90 ||
-      longitude < -180 ||
-      longitude > 180
-    ) {
+    if (lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+      console.error('Rider location coordinates out of range:', {
+        riderId,
+        latitude: lat,
+        longitude: lng
+      });
       return sendError(res, "Invalid latitude or longitude values", 400);
     }
 
@@ -39,8 +54,8 @@ exports.updateLocation = async (req, res) => {
     // Create or update live location
     const locationData = {
       rider: riderId,
-      latitude: parseFloat(latitude),
-      longitude: parseFloat(longitude),
+      latitude: lat,
+      longitude: lng,
       heading: heading ? parseFloat(heading) : 0,
       speed: speed ? parseFloat(speed) : 0,
       accuracy: accuracy ? parseFloat(accuracy) : 0,

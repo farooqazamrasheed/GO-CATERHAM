@@ -29,6 +29,8 @@ const rideSchema = new mongoose.Schema(
         "searching",
         "assigned",
         "accepted",
+        "going-to-pickup",
+        "arrived",
         "in_progress",
         "completed",
         "cancelled",

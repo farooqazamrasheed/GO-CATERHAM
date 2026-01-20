@@ -7,11 +7,46 @@ const riderLiveLocationSchema = new mongoose.Schema(
       ref: "Rider",
       required: true,
     },
-    latitude: { type: Number, required: true },
-    longitude: { type: Number, required: true },
-    heading: { type: Number, default: 0 },
-    speed: { type: Number, default: 0 },
-    accuracy: { type: Number, default: 0 }, // GPS accuracy in meters
+    latitude: { 
+      type: Number, 
+      required: true,
+      min: -90,
+      max: 90,
+      validate: {
+        validator: function(v) {
+          return !isNaN(v) && v !== 0;
+        },
+        message: 'Latitude must be a valid non-zero number between -90 and 90'
+      }
+    },
+    longitude: { 
+      type: Number, 
+      required: true,
+      min: -180,
+      max: 180,
+      validate: {
+        validator: function(v) {
+          return !isNaN(v) && v !== 0;
+        },
+        message: 'Longitude must be a valid non-zero number between -180 and 180'
+      }
+    },
+    heading: { 
+      type: Number, 
+      default: 0,
+      min: 0,
+      max: 360
+    },
+    speed: { 
+      type: Number, 
+      default: 0,
+      min: 0
+    },
+    accuracy: { 
+      type: Number, 
+      default: 0,
+      min: 0
+    }, // GPS accuracy in meters
     timestamp: { type: Date, default: Date.now },
   },
   { timestamps: true }

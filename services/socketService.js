@@ -53,7 +53,7 @@ class SocketService {
 
     this.io.on("connection", async (socket) => {
       const timestamp = new Date().toISOString();
-      console.log(`\n${'='.repeat(60)}`);
+      console.log(`\n${"=".repeat(60)}`);
       console.log(`🔌 [WEBSOCKET CONNECTED]`);
       console.log(`   Socket ID: ${socket.id}`);
       console.log(`   Time: ${timestamp}`);
@@ -65,17 +65,23 @@ class SocketService {
         const token = socket.handshake.auth.token;
         if (!token) {
           console.log(`   ❌ Auth Failed: No token provided`);
-          console.log(`   Debug - socket.handshake.auth:`, socket.handshake.auth);
-          console.log(`   Debug - socket.handshake.query:`, socket.handshake.query);
-          console.log(`${'='.repeat(60)}\n`);
-          socket.emit("connection_error", { 
+          console.log(
+            `   Debug - socket.handshake.auth:`,
+            socket.handshake.auth,
+          );
+          console.log(
+            `   Debug - socket.handshake.query:`,
+            socket.handshake.query,
+          );
+          console.log(`${"=".repeat(60)}\n`);
+          socket.emit("connection_error", {
             message: "No authentication token provided",
-            code: "NO_TOKEN"
+            code: "NO_TOKEN",
           });
           socket.disconnect();
           return;
         }
-        
+
         console.log(`   ✅ Token received, length: ${token.length}`);
 
         const { verifyToken } = require("../utils/jwt");
@@ -102,7 +108,7 @@ class SocketService {
           userName,
           userRole,
           connectedAt: new Date(),
-          transport: socket.conn.transport.name
+          transport: socket.conn.transport.name,
         });
 
         console.log(`   ✅ Auth Success`);
@@ -110,22 +116,21 @@ class SocketService {
         console.log(`   User Name: ${userName}`);
         console.log(`   User Role: ${userRole}`);
         console.log(`   Total Connected: ${this.connectedUsers.size}`);
-        console.log(`${'='.repeat(60)}\n`);
+        console.log(`${"=".repeat(60)}\n`);
 
         // Send connection acknowledgment to client
         socket.emit("connection_success", {
           message: "Connected successfully",
           userId: userId,
           socketId: socket.id,
-          timestamp: new Date().toISOString()
+          timestamp: new Date().toISOString(),
         });
-
       } catch (error) {
         console.log(`   ❌ Auth Failed: ${error.message}`);
-        console.log(`${'='.repeat(60)}\n`);
-        socket.emit("connection_error", { 
+        console.log(`${"=".repeat(60)}\n`);
+        socket.emit("connection_error", {
           message: "Authentication failed: " + error.message,
-          code: "AUTH_FAILED"
+          code: "AUTH_FAILED",
         });
         socket.disconnect();
         return;
@@ -135,13 +140,15 @@ class SocketService {
       socket.on("ping_server", (data) => {
         socket.emit("pong_server", {
           timestamp: new Date().toISOString(),
-          received: data?.timestamp || null
+          received: data?.timestamp || null,
         });
       });
 
       // Handle reconnection attempt
       socket.on("reconnect_attempt", () => {
-        console.log(`🔄 [WEBSOCKET RECONNECTING] User: ${socket.userName} (${socket.userId})`);
+        console.log(
+          `🔄 [WEBSOCKET RECONNECTING] User: ${socket.userName} (${socket.userId})`,
+        );
       });
 
       //-----------------------------------------------------------------
@@ -157,15 +164,19 @@ class SocketService {
         const { userId, userType, latitude, longitude } = data;
         if (userId && userType === "driver") {
           socket.join(`dashboard_${userId}`);
-          console.log(`📊 [DASHBOARD SUBSCRIBE] Driver: ${socket.userName || userId} (${userType})`);
-          console.log(`   Location: ${latitude ? `(${latitude}, ${longitude})` : 'Not provided'}`);
+          console.log(
+            `📊 [DASHBOARD SUBSCRIBE] Driver: ${socket.userName || userId} (${userType})`,
+          );
+          console.log(
+            `   Location: ${latitude ? `(${latitude}, ${longitude})` : "Not provided"}`,
+          );
 
           // Send subscription confirmation (for frontend compatibility)
-          socket.emit('dashboard_subscribed', { 
-            success: true, 
+          socket.emit("dashboard_subscribed", {
+            success: true,
             userId: userId,
             userType: userType,
-            timestamp: new Date().toISOString()
+            timestamp: new Date().toISOString(),
           });
 
           // Send initial dashboard data
@@ -173,22 +184,32 @@ class SocketService {
 
           // If location is provided, update the driver's location
           if (latitude && longitude) {
-            this.updateDriverLocationFromSocket(userId, latitude, longitude).catch(err => {
+            this.updateDriverLocationFromSocket(
+              userId,
+              latitude,
+              longitude,
+            ).catch((err) => {
               // Silently handle error - user might not be a driver or driver profile doesn't exist
-              console.log(`DEBUG [Dashboard]: Could not update location for user ${userId}: ${err.message}`);
+              console.log(
+                `DEBUG [Dashboard]: Could not update location for user ${userId}: ${err.message}`,
+              );
             });
           }
         } else if (userId && userType === "rider") {
           socket.join(`rider_dashboard_${userId}`);
-          console.log(`📊 [DASHBOARD SUBSCRIBE] Rider: ${socket.userName || userId} (${userType})`);
-          console.log(`   Location: ${latitude ? `(${latitude}, ${longitude})` : 'Not provided'}`);
+          console.log(
+            `📊 [DASHBOARD SUBSCRIBE] Rider: ${socket.userName || userId} (${userType})`,
+          );
+          console.log(
+            `   Location: ${latitude ? `(${latitude}, ${longitude})` : "Not provided"}`,
+          );
 
           // Send subscription confirmation (for frontend compatibility)
-          socket.emit('dashboard_subscribed', { 
-            success: true, 
+          socket.emit("dashboard_subscribed", {
+            success: true,
             userId: userId,
             userType: userType,
-            timestamp: new Date().toISOString()
+            timestamp: new Date().toISOString(),
           });
 
           // Cache rider location for real-time driver updates
@@ -196,7 +217,7 @@ class SocketService {
             this.riderLocations.set(userId, {
               latitude: parseFloat(latitude),
               longitude: parseFloat(longitude),
-              timestamp: new Date()
+              timestamp: new Date(),
             });
             console.log(`   📍 Rider location cached for real-time updates`);
           }
@@ -205,14 +226,14 @@ class SocketService {
           this.sendInitialRiderDashboardData(userId, latitude, longitude);
         } else {
           // Send error if userId or userType is missing
-          socket.emit('dashboard_subscribed', { 
-            success: false, 
-            message: 'userId and userType are required',
-            timestamp: new Date().toISOString()
+          socket.emit("dashboard_subscribed", {
+            success: false,
+            message: "userId and userType are required",
+            timestamp: new Date().toISOString(),
           });
         }
       };
-      
+
       // Listen for both event names for backwards compatibility
       socket.on("subscribe_dashboard", handleDashboardSubscription);
       socket.on("subscribe_to_dashboard", handleDashboardSubscription);
@@ -225,22 +246,28 @@ class SocketService {
         if (!userId || !latitude || !longitude) {
           socket.emit("location_update_error", {
             message: "Missing required fields: userId, latitude, longitude",
-            timestamp: new Date()
+            timestamp: new Date(),
           });
           return;
         }
 
         try {
-          await this.updateDriverLocationFromSocket(userId, latitude, longitude, heading, speed);
+          await this.updateDriverLocationFromSocket(
+            userId,
+            latitude,
+            longitude,
+            heading,
+            speed,
+          );
           socket.emit("location_update_success", {
             message: "Location updated successfully",
-            timestamp: new Date()
+            timestamp: new Date(),
           });
         } catch (error) {
           console.error("Error updating driver location via socket:", error);
           socket.emit("location_update_error", {
             message: error.message || "Failed to update location",
-            timestamp: new Date()
+            timestamp: new Date(),
           });
         }
       });
@@ -251,7 +278,9 @@ class SocketService {
         socket.leave(`rider_dashboard_${userId}`);
         // Remove rider location from cache
         this.riderLocations.delete(userId);
-        console.log(`📊 [DASHBOARD UNSUBSCRIBE] User: ${socket.userName || userId}`);
+        console.log(
+          `📊 [DASHBOARD UNSUBSCRIBE] User: ${socket.userName || userId}`,
+        );
       });
 
       // Handle rider location updates via WebSocket
@@ -262,7 +291,7 @@ class SocketService {
         if (!userId || !latitude || !longitude) {
           socket.emit("rider_location_update_error", {
             message: "Missing required fields: latitude, longitude",
-            timestamp: new Date()
+            timestamp: new Date(),
           });
           return;
         }
@@ -271,13 +300,14 @@ class SocketService {
         this.riderLocations.set(userId, {
           latitude: parseFloat(latitude),
           longitude: parseFloat(longitude),
-          timestamp: new Date()
+          timestamp: new Date(),
         });
 
         // Get updated nearby drivers for this rider
         const nearbyDrivers = await this.getNearbyDriversForRiderDashboard(
           parseFloat(latitude),
-          parseFloat(longitude)
+          parseFloat(longitude),
+          userId,
         );
 
         // Send updated nearby drivers to rider
@@ -288,7 +318,7 @@ class SocketService {
         socket.emit("rider_location_update_success", {
           message: "Location updated successfully",
           nearbyDriversCount: nearbyDrivers.length,
-          timestamp: new Date()
+          timestamp: new Date(),
         });
       });
 
@@ -301,86 +331,94 @@ class SocketService {
       // RIDER SUBSCRIBE/UNSUBSCRIBE TO DRIVER LOCATION
       // Required by BACKEND_REQUIREMENTS.md
       // =====================================================
-      
+
       // Rider subscribes to specific driver's location updates
       socket.on("rider_subscribe_driver", (data) => {
         const { driverId } = data;
         const riderId = socket.userId;
-        
+
         if (!driverId) {
           socket.emit("subscription_error", {
             message: "Driver ID is required",
-            code: "MISSING_DRIVER_ID"
+            code: "MISSING_DRIVER_ID",
           });
           return;
         }
-        
+
         // Join the driver's location room
         socket.join(`driver_location:${driverId}`);
-        console.log(`📍 [RIDER SUBSCRIBE DRIVER] Rider ${riderId} subscribed to driver ${driverId} location updates`);
-        
+        console.log(
+          `📍 [RIDER SUBSCRIBE DRIVER] Rider ${riderId} subscribed to driver ${driverId} location updates`,
+        );
+
         socket.emit("driver_subscription_success", {
           message: "Subscribed to driver location updates",
           driverId: driverId,
-          timestamp: new Date().toISOString()
+          timestamp: new Date().toISOString(),
         });
-        
+
         // Send current driver location immediately if available
         this.sendCurrentDriverLocation(socket, driverId);
       });
-      
+
       // Rider unsubscribes from specific driver's location updates
       socket.on("rider_unsubscribe_driver", (data) => {
         const { driverId } = data;
         const riderId = socket.userId;
-        
+
         if (!driverId) {
           return;
         }
-        
+
         // Leave the driver's location room
         socket.leave(`driver_location:${driverId}`);
-        console.log(`📍 [RIDER UNSUBSCRIBE DRIVER] Rider ${riderId} unsubscribed from driver ${driverId} location updates`);
-        
+        console.log(
+          `📍 [RIDER UNSUBSCRIBE DRIVER] Rider ${riderId} unsubscribed from driver ${driverId} location updates`,
+        );
+
         socket.emit("driver_unsubscription_success", {
           message: "Unsubscribed from driver location updates",
           driverId: driverId,
-          timestamp: new Date().toISOString()
+          timestamp: new Date().toISOString(),
         });
       });
-      
+
       // Rider subscribes to ride updates (for tracking ride status)
       socket.on("subscribe_ride", (data) => {
         const { rideId } = data;
         const riderId = socket.userId;
-        
+
         if (!rideId) {
           socket.emit("subscription_error", {
             message: "Ride ID is required",
-            code: "MISSING_RIDE_ID"
+            code: "MISSING_RIDE_ID",
           });
           return;
         }
-        
+
         // Join the ride's status room
         socket.join(`ride_status_${rideId}_${riderId}`);
-        console.log(`🚗 [SUBSCRIBE RIDE] User ${riderId} subscribed to ride ${rideId} updates`);
-        
+        console.log(
+          `🚗 [SUBSCRIBE RIDE] User ${riderId} subscribed to ride ${rideId} updates`,
+        );
+
         socket.emit("ride_subscription_success", {
           message: "Subscribed to ride updates",
           rideId: rideId,
-          timestamp: new Date().toISOString()
+          timestamp: new Date().toISOString(),
         });
       });
-      
+
       // Unsubscribe from ride updates
       socket.on("unsubscribe_ride", (data) => {
         const { rideId } = data;
         const riderId = socket.userId;
-        
+
         if (rideId) {
           socket.leave(`ride_status_${rideId}_${riderId}`);
-          console.log(`🚗 [UNSUBSCRIBE RIDE] User ${riderId} unsubscribed from ride ${rideId} updates`);
+          console.log(
+            `🚗 [UNSUBSCRIBE RIDE] User ${riderId} unsubscribed from ride ${rideId} updates`,
+          );
         }
       });
 
@@ -443,41 +481,49 @@ class SocketService {
       // Analytics subscription for admin real-time updates
       socket.on("subscribe_analytics", () => {
         // Only allow admins to subscribe
-        if (socket.userRole === 'admin' || socket.userRole === 'superadmin' || socket.userRole === 'subadmin') {
-          socket.join('admin_analytics');
-          console.log(`📊 [ANALYTICS SUBSCRIBE] Admin: ${socket.userName || socket.userId} (${socket.userRole})`);
-          socket.emit('analytics_subscribed', { 
-            success: true, 
-            message: 'Subscribed to analytics updates',
-            timestamp: new Date()
+        if (
+          socket.userRole === "admin" ||
+          socket.userRole === "superadmin" ||
+          socket.userRole === "subadmin"
+        ) {
+          socket.join("admin_analytics");
+          console.log(
+            `📊 [ANALYTICS SUBSCRIBE] Admin: ${socket.userName || socket.userId} (${socket.userRole})`,
+          );
+          socket.emit("analytics_subscribed", {
+            success: true,
+            message: "Subscribed to analytics updates",
+            timestamp: new Date(),
           });
         } else {
-          socket.emit('analytics_subscribed', { 
-            success: false, 
-            message: 'Only admins can subscribe to analytics',
-            timestamp: new Date()
+          socket.emit("analytics_subscribed", {
+            success: false,
+            message: "Only admins can subscribe to analytics",
+            timestamp: new Date(),
           });
         }
       });
 
       // Unsubscribe from analytics updates
       socket.on("unsubscribe_analytics", () => {
-        socket.leave('admin_analytics');
-        console.log(`📊 [ANALYTICS UNSUBSCRIBE] Admin: ${socket.userName || socket.userId}`);
+        socket.leave("admin_analytics");
+        console.log(
+          `📊 [ANALYTICS UNSUBSCRIBE] Admin: ${socket.userName || socket.userId}`,
+        );
       });
 
       socket.on("disconnect", (reason) => {
         const timestamp = new Date().toISOString();
         const connectedInfo = this.connectedUsers?.get(socket.id);
-        const connectionDuration = connectedInfo 
-          ? Math.round((Date.now() - connectedInfo.connectedAt) / 1000) 
+        const connectionDuration = connectedInfo
+          ? Math.round((Date.now() - connectedInfo.connectedAt) / 1000)
           : 0;
 
         // Remove from tracked users
         this.connectedUsers?.delete(socket.id);
 
         // Clean up rider location cache if this was a rider
-        if (socket.userId && socket.userRole === 'rider') {
+        if (socket.userId && socket.userRole === "rider") {
           this.riderLocations.delete(socket.userId);
         }
 
@@ -495,49 +541,55 @@ class SocketService {
               console.log(`⚠️  Cleared interval on disconnect: ${keyString}`);
             }
           });
-          
+
           // Delete the cleared intervals from the map
-          intervalsToDelete.forEach(key => {
+          intervalsToDelete.forEach((key) => {
             this.activeRideIntervals.delete(key);
           });
-          
+
           if (intervalsToDelete.length > 0) {
-            console.log(`✅ Cleaned up ${intervalsToDelete.length} active ride interval(s) for user ${socket.userId}`);
+            console.log(
+              `✅ Cleaned up ${intervalsToDelete.length} active ride interval(s) for user ${socket.userId}`,
+            );
           }
         }
 
-        console.log(`\n${'='.repeat(60)}`);
+        console.log(`\n${"=".repeat(60)}`);
         console.log(`🔌 [WEBSOCKET DISCONNECTED]`);
         console.log(`   Socket ID: ${socket.id}`);
-        console.log(`   User ID: ${socket.userId || 'N/A'}`);
-        console.log(`   User Name: ${socket.userName || 'N/A'}`);
-        console.log(`   User Role: ${socket.userRole || 'N/A'}`);
+        console.log(`   User ID: ${socket.userId || "N/A"}`);
+        console.log(`   User Name: ${socket.userName || "N/A"}`);
+        console.log(`   User Role: ${socket.userRole || "N/A"}`);
         console.log(`   Reason: ${reason}`);
         console.log(`   Session Duration: ${connectionDuration} seconds`);
         console.log(`   Time: ${timestamp}`);
-        console.log(`   Remaining Connected: ${this.connectedUsers?.size || 0}`);
-        
+        console.log(
+          `   Remaining Connected: ${this.connectedUsers?.size || 0}`,
+        );
+
         // Log disconnection reason explanation
         const reasonExplanations = {
-          'io server disconnect': '⚠️  Server forced disconnect',
-          'io client disconnect': '👋 Client initiated disconnect',
-          'ping timeout': '⏰ Client stopped responding to pings',
-          'transport close': '🚫 Connection was closed',
-          'transport error': '❌ Transport error occurred'
+          "io server disconnect": "⚠️  Server forced disconnect",
+          "io client disconnect": "👋 Client initiated disconnect",
+          "ping timeout": "⏰ Client stopped responding to pings",
+          "transport close": "🚫 Connection was closed",
+          "transport error": "❌ Transport error occurred",
         };
         if (reasonExplanations[reason]) {
           console.log(`   Explanation: ${reasonExplanations[reason]}`);
         }
-        console.log(`${'='.repeat(60)}\n`);
+        console.log(`${"=".repeat(60)}\n`);
       });
 
       // Handle connection errors
       socket.on("error", (error) => {
         console.log(`\n⚠️  [WEBSOCKET ERROR]`);
         console.log(`   Socket ID: ${socket.id}`);
-        console.log(`   User: ${socket.userName || socket.userId || 'Unknown'}`);
+        console.log(
+          `   User: ${socket.userName || socket.userId || "Unknown"}`,
+        );
         console.log(`   Error: ${error.message}`);
-        console.log('');
+        console.log("");
       });
     });
   }
@@ -552,7 +604,7 @@ class SocketService {
         if (this.io) {
           // Get all rider dashboard rooms
           const rooms = Array.from(this.io.sockets.adapter.rooms.keys()).filter(
-            (room) => room.startsWith("rider_dashboard_")
+            (room) => room.startsWith("rider_dashboard_"),
           );
 
           for (const room of rooms) {
@@ -585,10 +637,10 @@ class SocketService {
     this.driverLocationCheckInterval = setInterval(async () => {
       try {
         // Find all online drivers
-        const onlineDrivers = await Driver.find({ 
+        const onlineDrivers = await Driver.find({
           status: "online",
           isApproved: "approved",
-          activeStatus: "active"
+          activeStatus: "active",
         }).populate("user", "fullName");
 
         if (onlineDrivers.length === 0) {
@@ -602,28 +654,32 @@ class SocketService {
           // Check if driver has recent location
           const recentLocation = await LiveLocation.findOne({
             driver: driver._id,
-            timestamp: { $gte: twoMinutesAgo }
+            timestamp: { $gte: twoMinutesAgo },
           });
 
           if (!recentLocation) {
             // Check if they have any location at all
             const anyLocation = await LiveLocation.findOne({
-              driver: driver._id
+              driver: driver._id,
             }).sort({ timestamp: -1 });
 
             let warningType = "no_location";
-            let message = "You are online but we don't have your location. Please enable GPS to receive ride requests.";
+            let message =
+              "You are online but we don't have your location. Please enable GPS to receive ride requests.";
 
             if (anyLocation) {
-              const locationAge = Math.round((Date.now() - new Date(anyLocation.timestamp)) / 1000 / 60);
-              
+              const locationAge = Math.round(
+                (Date.now() - new Date(anyLocation.timestamp)) / 1000 / 60,
+              );
+
               if (anyLocation.timestamp < fiveMinutesAgo) {
                 warningType = "stale_location";
                 message = `Your location is ${locationAge} minutes old. Please enable GPS to receive ride requests.`;
               } else {
                 // Location is between 2-5 minutes old - send soft reminder
                 warningType = "location_update_needed";
-                message = "Please ensure your GPS is enabled for accurate location tracking.";
+                message =
+                  "Please ensure your GPS is enabled for accurate location tracking.";
               }
             }
 
@@ -631,14 +687,20 @@ class SocketService {
             // IMPORTANT: Use driver.user (User ID) not driver._id (Driver ID)
             // because sockets join rooms using User ID from JWT token
             const driverUserId = driver.user?.toString() || driver.user;
-            console.log(`DEBUG [LocationPolling]: Sending location reminder to driver ${driver._id} (User: ${driverUserId}, ${driver.user?.fullName || 'Unknown'}): ${warningType}`);
-            
+            console.log(
+              `DEBUG [LocationPolling]: Sending location reminder to driver ${driver._id} (User: ${driverUserId}, ${driver.user?.fullName || "Unknown"}): ${warningType}`,
+            );
+
             this.notifyUser(driverUserId, "location_reminder", {
               type: warningType,
               message: message,
               requiresAction: warningType !== "location_update_needed",
-              lastLocationAge: anyLocation ? Math.round((Date.now() - new Date(anyLocation.timestamp)) / 1000 / 60) : null,
-              timestamp: new Date()
+              lastLocationAge: anyLocation
+                ? Math.round(
+                    (Date.now() - new Date(anyLocation.timestamp)) / 1000 / 60,
+                  )
+                : null,
+              timestamp: new Date(),
             });
 
             // Also send to dashboard subscribers (using User ID)
@@ -646,7 +708,7 @@ class SocketService {
               type: warningType,
               message: message,
               requiresAction: warningType !== "location_update_needed",
-              timestamp: new Date()
+              timestamp: new Date(),
             });
           }
         }
@@ -676,7 +738,7 @@ class SocketService {
   getConnectionStats() {
     const stats = {
       totalConnected: this.connectedUsers?.size || 0,
-      users: []
+      users: [],
     };
 
     if (this.connectedUsers) {
@@ -684,7 +746,8 @@ class SocketService {
         stats.users.push({
           socketId,
           ...info,
-          connectedFor: Math.round((Date.now() - info.connectedAt) / 1000) + ' seconds'
+          connectedFor:
+            Math.round((Date.now() - info.connectedAt) / 1000) + " seconds",
         });
       });
     }
@@ -701,14 +764,18 @@ class SocketService {
     try {
       const LiveLocation = require("../models/LiveLocation");
       const Driver = require("../models/Driver");
-      
+
       // Get driver's current location
-      const location = await LiveLocation.findOne({ driver: driverId })
-        .sort({ timestamp: -1 });
-      
+      const location = await LiveLocation.findOne({ driver: driverId }).sort({
+        timestamp: -1,
+      });
+
       if (location) {
-        const driver = await Driver.findById(driverId).populate("user", "fullName phone");
-        
+        const driver = await Driver.findById(driverId).populate(
+          "user",
+          "fullName phone",
+        );
+
         socket.emit("driver_location_update", {
           driverId: driverId,
           latitude: location.latitude,
@@ -718,10 +785,12 @@ class SocketService {
           driverName: driver?.user?.fullName || "Unknown Driver",
           vehicleType: driver?.vehicleType || "sedan",
           vehicleNumber: driver?.numberPlateOfVehicle || null,
-          timestamp: location.timestamp.toISOString()
+          timestamp: location.timestamp.toISOString(),
         });
-        
-        console.log(`📍 [SEND DRIVER LOCATION] Sent current location of driver ${driverId} to rider`);
+
+        console.log(
+          `📍 [SEND DRIVER LOCATION] Sent current location of driver ${driverId} to rider`,
+        );
       }
     } catch (error) {
       console.error("Error sending current driver location:", error);
@@ -736,40 +805,42 @@ class SocketService {
   broadcastDriverLocationToSubscribers(driverId, locationData) {
     if (this.io) {
       const roomName = `driver_location:${driverId}`;
-      
+
       // Debug logging
-      console.log(`\n${'='.repeat(60)}`);
+      console.log(`\n${"=".repeat(60)}`);
       console.log(`📡 [BROADCAST DRIVER LOCATION]`);
       console.log(`   Driver ID: ${driverId}`);
       console.log(`   Room: ${roomName}`);
-      console.log(`   Location: (${locationData.latitude}, ${locationData.longitude})`);
-      
+      console.log(
+        `   Location: (${locationData.latitude}, ${locationData.longitude})`,
+      );
+
       // Check how many sockets are in this room
       const room = this.io.sockets.adapter.rooms.get(roomName);
       const subscriberCount = room ? room.size : 0;
       console.log(`   Subscribers in room: ${subscriberCount}`);
-      
+
       if (subscriberCount === 0) {
         console.log(`   ⚠️  WARNING: No subscribers in room ${roomName}`);
         console.log(`   Available rooms:`);
         this.io.sockets.adapter.rooms.forEach((sockets, roomName) => {
-          if (roomName.startsWith('driver_location:')) {
+          if (roomName.startsWith("driver_location:")) {
             console.log(`     - ${roomName} (${sockets.size} subscribers)`);
           }
         });
       }
-      
+
       this.io.to(roomName).emit("driver_location_update", {
         driverId: driverId,
         latitude: locationData.latitude,
         longitude: locationData.longitude,
         heading: locationData.heading || 0,
         speed: locationData.speed || 0,
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
       });
-      
+
       console.log(`   ✅ Broadcast sent to ${subscriberCount} subscriber(s)`);
-      console.log(`${'='.repeat(60)}\n`);
+      console.log(`${"=".repeat(60)}\n`);
     }
   }
 
@@ -782,11 +853,11 @@ class SocketService {
     console.log(`   Total Connected: ${stats.totalConnected}`);
     if (stats.users.length > 0) {
       console.log(`   Connected Users:`);
-      stats.users.forEach(u => {
+      stats.users.forEach((u) => {
         console.log(`     - ${u.userName} (${u.userRole}) - ${u.connectedFor}`);
       });
     }
-    console.log('');
+    console.log("");
   }
 
   /**
@@ -797,63 +868,167 @@ class SocketService {
    * @param {number} heading - Heading direction (optional)
    * @param {number} speed - Speed in km/h (optional)
    */
-  async updateDriverLocationFromSocket(userId, latitude, longitude, heading = 0, speed = 0) {
+  async updateDriverLocationFromSocket(
+    userId,
+    latitude,
+    longitude,
+    heading = 0,
+    speed = 0,
+  ) {
     const Driver = require("../models/Driver");
     const LiveLocation = require("../models/LiveLocation");
 
     try {
+      // Validate coordinates first
+      const lat = parseFloat(latitude);
+      const lng = parseFloat(longitude);
+
+      if (isNaN(lat) || isNaN(lng)) {
+        console.error("Invalid driver location coordinates received:", {
+          userId,
+          latitude,
+          longitude,
+          parsedLat: lat,
+          parsedLng: lng,
+          message: "Latitude and longitude must be valid numbers",
+        });
+        return null;
+      }
+
+      // Validate ranges
+      if (lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+        console.error("Driver location coordinates out of range:", {
+          userId,
+          latitude: lat,
+          longitude: lng,
+          message: "Coordinates must be within valid ranges",
+        });
+        return null;
+      }
+
       // Find driver by user ID
       const driver = await Driver.findOne({ user: userId });
-      
+
       if (!driver) {
-        console.log(`DEBUG [SocketLocation]: No driver found for user ${userId} - this is normal for non-driver users`);
+        console.log(
+          `DEBUG [SocketLocation]: No driver found for user ${userId} - this is normal for non-driver users`,
+        );
         return null; // Return gracefully instead of throwing - user might not be a driver
       }
 
       // Only update location if driver is online
       if (driver.status !== "online") {
-        console.log(`DEBUG [SocketLocation]: Driver ${driver._id} is not online (status: ${driver.status})`);
+        console.log(
+          `DEBUG [SocketLocation]: Driver ${driver._id} is not online (status: ${driver.status})`,
+        );
         return; // Silently ignore location updates from offline drivers
       }
 
       const locationData = {
         driver: driver._id,
-        latitude: parseFloat(latitude),
-        longitude: parseFloat(longitude),
+        latitude: lat,
+        longitude: lng,
         heading: heading ? parseFloat(heading) : 0,
         speed: speed ? parseFloat(speed) : 0,
         timestamp: new Date(),
+        location: {
+          type: "Point",
+          coordinates: [lng, lat], // GeoJSON format: [longitude, latitude]
+        },
       };
 
-      // Upsert location
+      // Upsert location with runValidators disabled to avoid schema validation issues
+      console.log(
+        `DEBUG [SocketLocation]: About to update location for driver ${driver._id}`,
+        {
+          locationData: JSON.stringify(locationData),
+        },
+      );
+
       const locationResult = await LiveLocation.findOneAndUpdate(
         { driver: driver._id },
         locationData,
-        { upsert: true, new: true, setDefaultsOnInsert: true }
+        {
+          upsert: true,
+          new: true,
+          setDefaultsOnInsert: true,
+          runValidators: false, // Disable validators since we validate manually above
+          strict: false, // Allow fields not in schema (for flexibility)
+        },
+      ).catch((err) => {
+        console.error(
+          `ERROR [SocketLocation]: findOneAndUpdate failed for driver ${driver._id}:`,
+          {
+            error: err.message,
+            stack: err.stack,
+            code: err.code,
+            name: err.name,
+          },
+        );
+        throw err;
+      });
+
+      console.log(
+        `DEBUG [SocketLocation]: Location updated for driver ${driver._id}:`,
+        {
+          lat: locationResult.latitude,
+          lng: locationResult.longitude,
+          timestamp: locationResult.timestamp,
+        },
       );
 
-      console.log(`DEBUG [SocketLocation]: Location updated for driver ${driver._id}:`, {
-        lat: locationResult.latitude,
-        lng: locationResult.longitude,
-        timestamp: locationResult.timestamp
-      });
-
       // Notify nearby riders about driver location update
-      await this.notifyNearbyRidersAboutDriverUpdate(driver._id.toString(), {
-        latitude: locationData.latitude,
-        longitude: locationData.longitude,
-        heading: locationData.heading,
-        speed: locationData.speed,
-      });
+      // Validate coordinates before sending
+      if (
+        locationData.latitude &&
+        locationData.longitude &&
+        !isNaN(locationData.latitude) &&
+        !isNaN(locationData.longitude)
+      ) {
+        await this.notifyNearbyRidersAboutDriverUpdate(driver._id.toString(), {
+          latitude: locationData.latitude,
+          longitude: locationData.longitude,
+          heading: locationData.heading,
+          speed: locationData.speed,
+        });
+      } else {
+        console.error(
+          "Invalid driver location coordinates for nearby riders:",
+          {
+            driverId: driver._id.toString(),
+            latitude: locationData.latitude,
+            longitude: locationData.longitude,
+            message: "Coordinates must be valid numbers",
+          },
+        );
+      }
 
       // Notify subscribers of active rides about location updates
-      await this.notifyRideSubscribersAboutDriverLocation(driver._id.toString(), {
-        latitude: locationData.latitude,
-        longitude: locationData.longitude,
-        heading: locationData.heading,
-        speed: locationData.speed,
-        timestamp: locationData.timestamp,
-      });
+      // Validate coordinates before sending
+      if (
+        locationData.latitude &&
+        locationData.longitude &&
+        !isNaN(locationData.latitude) &&
+        !isNaN(locationData.longitude)
+      ) {
+        await this.notifyRideSubscribersAboutDriverLocation(
+          driver._id.toString(),
+          {
+            latitude: locationData.latitude,
+            longitude: locationData.longitude,
+            heading: locationData.heading,
+            speed: locationData.speed,
+            timestamp: locationData.timestamp,
+          },
+        );
+      } else {
+        console.error("Invalid driver location coordinates:", {
+          driverId: driver._id.toString(),
+          latitude: locationData.latitude,
+          longitude: locationData.longitude,
+          message: "Coordinates must be valid numbers",
+        });
+      }
 
       // Broadcast to all riders who subscribed to this specific driver's location
       // (Required by BACKEND_REQUIREMENTS.md - rider_subscribe_driver event)
@@ -907,7 +1082,7 @@ class SocketService {
     if (this.io) {
       this.io.to(`rider_dashboard_${riderId}`).emit(event, data);
       console.log(
-        `Rider dashboard notification sent to rider ${riderId}: ${event}`
+        `Rider dashboard notification sent to rider ${riderId}: ${event}`,
       );
     }
   }
@@ -950,13 +1125,13 @@ class SocketService {
       const nearbyDrivers = await this.getNearbyDriversForDashboard(
         driverId,
         latitude,
-        longitude
+        longitude,
       );
 
       // Get nearby ride requests
       const nearbyRides = await this.getNearbyRideRequestsForDashboard(
         latitude,
-        longitude
+        longitude,
       );
 
       const dashboardData = {
@@ -1008,14 +1183,14 @@ class SocketService {
         0,
         23,
         59,
-        59
+        59,
       );
 
       // Calculate previous month date range
       const startOfLastMonth = new Date(
         now.getFullYear(),
         now.getMonth() - 1,
-        1
+        1,
       );
       const endOfLastMonth = new Date(
         now.getFullYear(),
@@ -1023,7 +1198,7 @@ class SocketService {
         0,
         23,
         59,
-        59
+        59,
       );
 
       // Get monthly ride statistics
@@ -1044,7 +1219,7 @@ class SocketService {
       let ridesChangePercent = 0;
       if (lastMonthRides > 0) {
         ridesChangePercent = Math.round(
-          ((currentMonthRides - lastMonthRides) / lastMonthRides) * 100
+          ((currentMonthRides - lastMonthRides) / lastMonthRides) * 100,
         );
       } else if (currentMonthRides > 0) {
         ridesChangePercent = 100; // If no rides last month but has rides this month
@@ -1057,7 +1232,8 @@ class SocketService {
       // Get nearby drivers
       const nearbyDrivers = await this.getNearbyDriversForRiderDashboard(
         latitude,
-        longitude
+        longitude,
+        riderId,
       );
 
       // Extract first name from full name
@@ -1129,7 +1305,7 @@ class SocketService {
       this.notifyRiderDashboard(
         riderId,
         "rider_dashboard_initial",
-        dashboardData
+        dashboardData,
       );
     } catch (error) {
       console.error("Error sending initial rider dashboard data:", error);
@@ -1186,10 +1362,12 @@ class SocketService {
    * @param {number} userLat - User latitude
    * @param {number} userLon - User longitude
    */
-  async getNearbyDriversForRiderDashboard(userLat, userLon) {
+  async getNearbyDriversForRiderDashboard(userLat, userLon, riderId = null) {
     try {
-      console.log(`DEBUG [getNearbyDriversForRiderDashboard]: Looking for drivers near (${userLat}, ${userLon})`);
-      
+      console.log(
+        `DEBUG [getNearbyDriversForRiderDashboard]: Looking for drivers near (${userLat}, ${userLon}) for rider ${riderId || "unknown"}`,
+      );
+
       // Surrey boundary coordinates (approximate polygon for Surrey, UK)
       const SURREY_BOUNDARY = {
         type: "Polygon",
@@ -1255,6 +1433,10 @@ class SocketService {
       // Get all recent live locations (within last 5 minutes)
       const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
 
+      // Import required models
+      const LiveLocation = require("../models/LiveLocation");
+      const Ride = require("../models/Ride");
+
       const recentLocations = await LiveLocation.find({
         timestamp: { $gte: fiveMinutesAgo },
       }).populate({
@@ -1265,10 +1447,45 @@ class SocketService {
         },
       });
 
-      console.log(`DEBUG [getNearbyDriversForRiderDashboard]: Found ${recentLocations.length} recent driver locations`);
+      console.log(
+        `DEBUG [getNearbyDriversForRiderDashboard]: Found ${recentLocations.length} recent driver locations`,
+      );
 
       const driversWithDistance = [];
-      let skippedReasons = { noDriver: 0, notOnline: 0, notApproved: 0, inactive: 0, tooFar: 0 };
+      let skippedReasons = {
+        noDriver: 0,
+        notOnline: 0,
+        notApproved: 0,
+        inactive: 0,
+        tooFar: 0,
+      };
+
+      // CRITICAL FIX: Get active rides for this rider to check if any busy drivers are assigned
+      let riderActiveRides = [];
+      try {
+        riderActiveRides = await Ride.find({
+          rider: riderId,
+          status: {
+            $in: [
+              "searching",
+              "assigned",
+              "accepted",
+              "going-to-pickup",
+              "arrived",
+              "in_progress",
+            ],
+          },
+        }).populate("driver");
+      } catch (error) {
+        console.error("Error fetching rider active rides:", error);
+      }
+
+      // Create a set of driver IDs that are assigned to this rider
+      const assignedDriverIds = new Set(
+        riderActiveRides
+          .filter((ride) => ride.driver && ride.driver._id)
+          .map((ride) => ride.driver._id.toString()),
+      );
 
       for (const location of recentLocations) {
         // Check if driver is online and approved
@@ -1277,17 +1494,36 @@ class SocketService {
           skippedReasons.noDriver++;
           continue;
         }
-        if (location.driver.status !== "online") {
+
+        // CRITICAL FIX: Include 'busy' drivers if they have an active ride with THIS rider
+        // This prevents the assigned driver from disappearing from the map after accepting the ride
+        const driverIdStr = location.driver._id.toString();
+        const isAssignedToThisRider = assignedDriverIds.has(driverIdStr);
+
+        if (
+          location.driver.status !== "online" &&
+          location.driver.status !== "busy"
+        ) {
           skippedReasons.notOnline++;
           continue;
         }
+
+        // If driver is busy but NOT assigned to this rider, skip them
+        if (location.driver.status === "busy" && !isAssignedToThisRider) {
+          skippedReasons.notOnline++;
+          continue;
+        }
+
         if (location.driver.isApproved !== "approved") {
           skippedReasons.notApproved++;
           continue;
         }
-        
+
         // Only skip if activeStatus is explicitly set to "inactive"
-        if (location.driver.activeStatus && location.driver.activeStatus === "inactive") {
+        if (
+          location.driver.activeStatus &&
+          location.driver.activeStatus === "inactive"
+        ) {
           skippedReasons.inactive++;
           continue;
         }
@@ -1304,7 +1540,7 @@ class SocketService {
           userLat,
           userLon,
           location.latitude,
-          location.longitude
+          location.longitude,
         );
 
         // Only include drivers within 12km
@@ -1321,7 +1557,8 @@ class SocketService {
             },
             heading: location.heading || 0,
             vehicleType: location.driver.vehicleType || "sedan",
-            vehicle: location.driver.vehicle || location.driver.vehicleModel || null,
+            vehicle:
+              location.driver.vehicle || location.driver.vehicleModel || null,
             vehicleColor: location.driver.vehicleColor || null,
             numberPlate: location.driver.numberPlateOfVehicle || null,
             rating: location.driver.rating || 5.0,
@@ -1335,7 +1572,9 @@ class SocketService {
         }
       }
 
-      console.log(`DEBUG [getNearbyDriversForRiderDashboard]: Returning ${driversWithDistance.length} drivers. Skipped: ${JSON.stringify(skippedReasons)}`);
+      console.log(
+        `DEBUG [getNearbyDriversForRiderDashboard]: Returning ${driversWithDistance.length} drivers. Skipped: ${JSON.stringify(skippedReasons)}`,
+      );
 
       // Sort by distance (closest first) and limit to 50 drivers
       return driversWithDistance
@@ -1381,7 +1620,7 @@ class SocketService {
     };
 
     const event = eventMap[status] || "ride_status_update";
-    
+
     // FIX: Ensure critical ride data is always included (driver, pickup, dropoff)
     const notificationData = {
       rideId: rideData._id || rideData.rideId,
@@ -1391,11 +1630,15 @@ class SocketService {
       dropoff: rideData.dropoff || null,
       ...rideData,
     };
-    
+
     this.notifyUser(riderId, event, notificationData);
 
     // Also send real-time status update to all subscribers of this ride
-    this.notifyRideStatusSubscribers(rideData._id || rideData.rideId, status, notificationData);
+    this.notifyRideStatusSubscribers(
+      rideData._id || rideData.rideId,
+      status,
+      notificationData,
+    );
   }
 
   /**
@@ -1411,22 +1654,29 @@ class SocketService {
         rideId: rideData._id || rideData.rideId || rideId,
         status,
         driver: rideData.driver || null,
-        pickup: rideData.pickup ? {
-          latitude: rideData.pickup.lat || rideData.pickup.latitude || null,
-          longitude: rideData.pickup.lng || rideData.pickup.longitude || null,
-          address: rideData.pickup.address || "Pickup Location"
-        } : null,
-        dropoff: rideData.dropoff ? {
-          latitude: rideData.dropoff.lat || rideData.dropoff.latitude || null,
-          longitude: rideData.dropoff.lng || rideData.dropoff.longitude || null,
-          address: rideData.dropoff.address || "Dropoff Location"
-        } : null,
+        pickup: rideData.pickup
+          ? {
+              latitude: rideData.pickup.lat || rideData.pickup.latitude || null,
+              longitude:
+                rideData.pickup.lng || rideData.pickup.longitude || null,
+              address: rideData.pickup.address || "Pickup Location",
+            }
+          : null,
+        dropoff: rideData.dropoff
+          ? {
+              latitude:
+                rideData.dropoff.lat || rideData.dropoff.latitude || null,
+              longitude:
+                rideData.dropoff.lng || rideData.dropoff.longitude || null,
+              address: rideData.dropoff.address || "Dropoff Location",
+            }
+          : null,
         ...rideData,
       };
-      
+
       // Find all rooms that match the pattern for this ride
       const rideStatusRooms = Array.from(
-        this.io.sockets.adapter.rooms.keys()
+        this.io.sockets.adapter.rooms.keys(),
       ).filter((room) => room.startsWith(`ride_status_${rideId}_`));
 
       rideStatusRooms.forEach((room) => {
@@ -1438,7 +1688,7 @@ class SocketService {
 
       if (rideStatusRooms.length > 0) {
         console.log(
-          `Ride status change notified to ${rideStatusRooms.length} subscribers for ride ${rideId}`
+          `Ride status change notified to ${rideStatusRooms.length} subscribers for ride ${rideId}`,
         );
       }
     }
@@ -1452,24 +1702,25 @@ class SocketService {
   async notifyRideRequest(driverId, rideData) {
     // Convert Driver ID to User ID for proper socket targeting
     const userId = await this.getDriverUserId(driverId);
-    
+
     // Calculate expiry time (30 seconds from now as per BACKEND_CHANGES_REQUIRED.md)
     const expiresAt = new Date(Date.now() + 30 * 1000);
-    
+
     // Format ride request as per specification
     const rideRequestPayload = {
       rideId: rideData._id,
       riderId: rideData.rider?._id || rideData.rider,
-      riderName: rideData.rider?.fullName || rideData.riderName || "Unknown Rider",
+      riderName:
+        rideData.rider?.fullName || rideData.riderName || "Unknown Rider",
       pickup: {
         latitude: rideData.pickup?.latitude || rideData.pickup?.lat,
         longitude: rideData.pickup?.longitude || rideData.pickup?.lng,
-        address: rideData.pickup?.address || "Unknown"
+        address: rideData.pickup?.address || "Unknown",
       },
       dropoff: {
         latitude: rideData.dropoff?.latitude || rideData.dropoff?.lat,
         longitude: rideData.dropoff?.longitude || rideData.dropoff?.lng,
-        address: rideData.dropoff?.address || "Unknown"
+        address: rideData.dropoff?.address || "Unknown",
       },
       distance: rideData.estimatedDistance || rideData.distance || 0, // km
       fare: rideData.estimatedFare || rideData.fare || 0,
@@ -1477,15 +1728,17 @@ class SocketService {
       vehicleType: rideData.vehicleType || "sedan",
       expiresAt: expiresAt.toISOString(),
       timeLeft: 30, // seconds
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
     };
 
     this.notifyUser(userId, "ride_request", rideRequestPayload);
-    
+
     // Also send to driver's dashboard (using User ID)
     this.notifyDashboard(userId, "ride_request", rideRequestPayload);
-    
-    console.log(`Ride request sent to driver ${driverId} (user: ${userId}): ride ${rideData._id}`);
+
+    console.log(
+      `Ride request sent to driver ${driverId} (user: ${userId}): ride ${rideData._id}`,
+    );
   }
 
   /**
@@ -1508,7 +1761,7 @@ class SocketService {
     if (!driverData) {
       console.error(
         "Driver data is null in notifyDriverAssigned for rider",
-        riderId
+        riderId,
       );
       return;
     }
@@ -1554,19 +1807,19 @@ class SocketService {
   async getDriverUserId(driverId) {
     try {
       const Driver = require("../models/Driver");
-      
+
       // First check if this is already a User ID by looking for a driver with this user field
       let driver = await Driver.findOne({ user: driverId }).select("user");
       if (driver) {
         return driverId; // It's already a User ID
       }
-      
+
       // Otherwise, try to find driver by _id
       driver = await Driver.findById(driverId).select("user");
       if (driver && driver.user) {
         return driver.user.toString();
       }
-      
+
       // Return the original ID as fallback (might already be correct)
       return driverId;
     } catch (error) {
@@ -1581,7 +1834,11 @@ class SocketService {
    * @param {Object} updateData - Updated dashboard data
    * @param {string} updateType - Type of update (earnings, status, nearby_rides, etc.)
    */
-  async notifyDriverDashboardUpdate(driverId, updateData, updateType = "general") {
+  async notifyDriverDashboardUpdate(
+    driverId,
+    updateData,
+    updateType = "general",
+  ) {
     const notificationData = {
       updateType,
       data: updateData,
@@ -1590,7 +1847,7 @@ class SocketService {
 
     // Convert Driver ID to User ID for proper socket room targeting
     const userId = await this.getDriverUserId(driverId);
-    
+
     // Send to user's personal room (using User ID)
     this.notifyUser(userId, "dashboard_update", notificationData);
 
@@ -1606,14 +1863,14 @@ class SocketService {
   async notifyDriverEarningsUpdate(driverId, earningsData) {
     // Convert Driver ID to User ID
     const userId = await this.getDriverUserId(driverId);
-    
+
     // Send to dashboard subscribers
     await this.notifyDriverDashboardUpdate(
       driverId,
       {
         earnings: earningsData,
       },
-      "earnings"
+      "earnings",
     );
 
     // Also send to earnings subscribers (using User ID)
@@ -1622,7 +1879,9 @@ class SocketService {
         ...earningsData,
         timestamp: new Date(),
       });
-      console.log(`Earnings update sent to driver ${driverId} (user: ${userId})`);
+      console.log(
+        `Earnings update sent to driver ${driverId} (user: ${userId})`,
+      );
     }
   }
 
@@ -1637,7 +1896,7 @@ class SocketService {
       {
         nearbyRideRequests: rideRequests,
       },
-      "nearby_rides"
+      "nearby_rides",
     );
   }
 
@@ -1652,7 +1911,7 @@ class SocketService {
       {
         nearbyDrivers: nearbyDrivers,
       },
-      "nearby_drivers"
+      "nearby_drivers",
     );
   }
 
@@ -1667,7 +1926,7 @@ class SocketService {
       {
         status: newStatus,
       },
-      "status"
+      "status",
     );
   }
 
@@ -1682,7 +1941,9 @@ class SocketService {
       ...updateData,
       timestamp: new Date(),
     });
-    console.log(`Profile update notification sent to driver ${driverId} (user: ${userId})`);
+    console.log(
+      `Profile update notification sent to driver ${driverId} (user: ${userId})`,
+    );
   }
 
   /**
@@ -1696,7 +1957,7 @@ class SocketService {
       {
         status: newStatus,
       },
-      "status"
+      "status",
     );
   }
 
@@ -1720,7 +1981,7 @@ class SocketService {
     this.notifyRiderDashboard(
       riderId,
       "rider_dashboard_update",
-      notificationData
+      notificationData,
     );
   }
 
@@ -1735,7 +1996,7 @@ class SocketService {
       {
         nearbyDrivers: nearbyDrivers,
       },
-      "nearby_drivers"
+      "nearby_drivers",
     );
   }
 
@@ -1750,7 +2011,7 @@ class SocketService {
       {
         stats: statsData,
       },
-      "stats"
+      "stats",
     );
   }
 
@@ -1765,11 +2026,14 @@ class SocketService {
 
       // Get driver details for the update
       const Driver = require("../models/Driver");
-      const driver = await Driver.findById(driverId).populate("user", "fullName");
+      const driver = await Driver.findById(driverId).populate(
+        "user",
+        "fullName",
+      );
 
       // Get all rooms that start with 'rider_dashboard_'
       const rooms = Array.from(this.io.sockets.adapter.rooms.keys()).filter(
-        (room) => room.startsWith("rider_dashboard_")
+        (room) => room.startsWith("rider_dashboard_"),
       );
 
       // For each rider room, check if the driver is nearby using cached rider location
@@ -1778,17 +2042,22 @@ class SocketService {
 
         // Get cached rider location
         const riderLocation = this.riderLocations.get(riderId);
-        
+
         if (!riderLocation) {
           // No cached location for this rider - skip or use a default behavior
-          console.log(`DEBUG [DriverUpdate]: No cached location for rider ${riderId}, skipping`);
+          console.log(
+            `DEBUG [DriverUpdate]: No cached location for rider ${riderId}, skipping`,
+          );
           continue;
         }
 
         // Check if rider location is stale (older than 10 minutes)
-        const locationAge = Date.now() - new Date(riderLocation.timestamp).getTime();
+        const locationAge =
+          Date.now() - new Date(riderLocation.timestamp).getTime();
         if (locationAge > 10 * 60 * 1000) {
-          console.log(`DEBUG [DriverUpdate]: Rider ${riderId} location is stale (${Math.round(locationAge/1000/60)} mins old), skipping`);
+          console.log(
+            `DEBUG [DriverUpdate]: Rider ${riderId} location is stale (${Math.round(locationAge / 1000 / 60)} mins old), skipping`,
+          );
           continue;
         }
 
@@ -1797,7 +2066,7 @@ class SocketService {
           riderLocation.latitude,
           riderLocation.longitude,
           driverLocation.latitude,
-          driverLocation.longitude
+          driverLocation.longitude,
         );
 
         // Only send update if driver is within 12km of rider
@@ -1824,16 +2093,18 @@ class SocketService {
           // Send real-time driver location update to rider
           this.notifyRiderDashboard(riderId, "driver_location_update", {
             driver: driverUpdate,
-            timestamp: new Date()
+            timestamp: new Date(),
           });
 
-          console.log(`DEBUG [DriverUpdate]: Sent driver ${driverId} location to rider ${riderId} (distance: ${distance.toFixed(2)}km)`);
+          console.log(
+            `DEBUG [DriverUpdate]: Sent driver ${driverId} location to rider ${riderId} (distance: ${distance.toFixed(2)}km)`,
+          );
         }
       }
     } catch (error) {
       console.error(
         "Error notifying nearby riders about driver update:",
-        error
+        error,
       );
     }
   }
@@ -1869,24 +2140,30 @@ class SocketService {
           longitude: driverLocation.longitude,
           heading: driverLocation.heading || 0,
           speed: driverLocation.speed || 0,
-          timestamp: new Date().toISOString()
+          timestamp: new Date().toISOString(),
         };
 
         // Emit driver_location_update to ride room as per spec
-        this.io.to(`ride_${rideId}`).emit("driver_location_update", locationPayload);
+        this.io
+          .to(`ride_${rideId}`)
+          .emit("driver_location_update", locationPayload);
 
         // Also notify rider subscribers directly
-        this.io.to(`ride_status_${rideId}_${riderId}`).emit("driver_location_update", locationPayload);
+        this.io
+          .to(`ride_status_${rideId}_${riderId}`)
+          .emit("driver_location_update", locationPayload);
 
         // Notify driver subscribers (if driver is also subscribed)
-        this.io.to(`ride_status_${rideId}_${driverId}`).emit("driver_location_update", locationPayload);
+        this.io
+          .to(`ride_status_${rideId}_${driverId}`)
+          .emit("driver_location_update", locationPayload);
 
         console.log(`Driver location update sent for ride ${rideId}`);
       }
     } catch (error) {
       console.error(
         "Error notifying ride subscribers about driver location:",
-        error
+        error,
       );
     }
   }
@@ -1930,7 +2207,10 @@ class SocketService {
       const payload = {
         rideId: rideData._id || rideData.rideId,
         driverId: rideData.driver?._id || rideData.driverId,
-        driverName: rideData.driver?.user?.fullName || rideData.driverName || "Your driver",
+        driverName:
+          rideData.driver?.user?.fullName ||
+          rideData.driverName ||
+          "Your driver",
         startTime: rideData.startTime || new Date(),
         pickup: rideData.pickup,
         dropoff: rideData.dropoff,
@@ -1940,7 +2220,9 @@ class SocketService {
       };
 
       this.notifyUser(riderId, "ride_started", payload);
-      console.log(`Ride started notification sent to rider ${riderId}: ride ${payload.rideId}`);
+      console.log(
+        `Ride started notification sent to rider ${riderId}: ride ${payload.rideId}`,
+      );
     }
   }
 
@@ -1966,7 +2248,9 @@ class SocketService {
       };
 
       this.notifyUser(riderId, "ride_completed", payload);
-      console.log(`Ride completed notification sent to rider ${riderId}: ride ${payload.rideId}`);
+      console.log(
+        `Ride completed notification sent to rider ${riderId}: ride ${payload.rideId}`,
+      );
     }
   }
 
@@ -1993,7 +2277,9 @@ class SocketService {
       // Also send to user's personal room
       this.notifyUser(riderId, "reward_earned", payload);
 
-      console.log(`Reward earned notification sent to rider ${riderId}: ${payload.points} points`);
+      console.log(
+        `Reward earned notification sent to rider ${riderId}: ${payload.points} points`,
+      );
     }
   }
   notifyRideHistoryUpdate(riderId, historyUpdate) {
@@ -2049,7 +2335,7 @@ class SocketService {
         if (socket.rooms.has(riderId)) {
           socket.leave(`ride_history_${riderId}`);
           console.log(
-            `Rider ${riderId} unsubscribed from ride history updates`
+            `Rider ${riderId} unsubscribed from ride history updates`,
           );
         }
       });
@@ -2083,7 +2369,7 @@ class SocketService {
       // Get all rider dashboard subscribers
       if (this.io) {
         const rooms = Array.from(this.io.sockets.adapter.rooms.keys()).filter(
-          (room) => room.startsWith("rider_dashboard_")
+          (room) => room.startsWith("rider_dashboard_"),
         );
 
         // For each rider room, check if the driver is nearby and send status update
@@ -2111,7 +2397,7 @@ class SocketService {
     } catch (error) {
       console.error(
         "Error notifying nearby riders about driver status change:",
-        error
+        error,
       );
     }
   }
@@ -2297,7 +2583,7 @@ class SocketService {
         timestamp: new Date(),
       });
       console.log(
-        `Rewards redemption success notification sent to user ${userId}`
+        `Rewards redemption success notification sent to user ${userId}`,
       );
     }
   }
@@ -2377,12 +2663,12 @@ class SocketService {
           updatedAt: new Date(),
         });
         console.log(
-          `Admin notification sent for driver ${populatedDriver._id} status: ${newStatus}`
+          `Admin notification sent for driver ${populatedDriver._id} status: ${newStatus}`,
         );
       } catch (error) {
         console.error(
           "Error sending admin driver status update notification:",
-          error
+          error,
         );
       }
     }
@@ -2398,7 +2684,7 @@ class SocketService {
         // Populate the ride data if not already populated
         // Check if rideData has populate method (is a Mongoose document)
         let populatedRide;
-        if (typeof rideData.populate === 'function') {
+        if (typeof rideData.populate === "function") {
           populatedRide = await rideData.populate([
             { path: "rider", select: "fullName" },
             { path: "driver", populate: { path: "user", select: "fullName" } },
@@ -2433,7 +2719,7 @@ class SocketService {
           },
         });
         console.log(
-          `Admin notification sent for ride ${populatedRide._id} status: ${populatedRide.status}`
+          `Admin notification sent for ride ${populatedRide._id} status: ${populatedRide.status}`,
         );
       } catch (error) {
         console.error("Error sending admin ride update notification:", error);
@@ -2450,10 +2736,12 @@ class SocketService {
     if (this.io) {
       // CRITICAL FIX: Check if already subscribed to prevent duplicates
       const intervalKey = `ride_${rideId}_user_${riderId}`;
-      
+
       // If interval already exists, don't create a new one
       if (this.activeRideIntervals.has(intervalKey)) {
-        console.log(`⚠️  Rider ${riderId} already subscribed to ride ${rideId} - skipping duplicate subscription`);
+        console.log(
+          `⚠️  Rider ${riderId} already subscribed to ride ${rideId} - skipping duplicate subscription`,
+        );
         return;
       }
 
@@ -2462,7 +2750,7 @@ class SocketService {
         if (socket.rooms.has(riderId)) {
           socket.join(`active_ride_${rideId}`);
           console.log(
-            `Rider ${riderId} subscribed to active ride ${rideId} updates`
+            `Rider ${riderId} subscribed to active ride ${rideId} updates`,
           );
         }
       });
@@ -2484,7 +2772,7 @@ class SocketService {
         if (socket.rooms.has(userId)) {
           socket.join(`ride_status_${rideId}_${userId}`);
           console.log(
-            `User ${userId} subscribed to ride ${rideId} status updates`
+            `User ${userId} subscribed to ride ${rideId} status updates`,
           );
         }
       });
@@ -2534,13 +2822,13 @@ class SocketService {
         } catch (error) {
           console.error(
             `Error sending active ride update for ${rideId}:`,
-            error
+            error,
           );
           // Clear interval on persistent errors
           clearInterval(this.activeRideIntervals.get(rideId));
           this.activeRideIntervals.delete(rideId);
         }
-      }, 10000)
+      }, 10000),
     ); // 10 seconds
   }
 
@@ -2602,11 +2890,11 @@ class SocketService {
               driverLocation.lat,
               driverLocation.lng,
               ride.pickup.lat,
-              ride.pickup.lng
+              ride.pickup.lng,
             );
             pickupEta = calculateETA(
               distanceToPickup,
-              driverLocation.speed || 30
+              driverLocation.speed || 30,
             );
           }
 
@@ -2615,11 +2903,11 @@ class SocketService {
               driverLocation.lat,
               driverLocation.lng,
               ride.dropoff.lat,
-              ride.dropoff.lng
+              ride.dropoff.lng,
             );
             dropoffEta = calculateETA(
               distanceToDropoff,
-              driverLocation.speed || 30
+              driverLocation.speed || 30,
             );
           }
         }
@@ -2635,15 +2923,15 @@ class SocketService {
           (ride.vehicleType === "sedan"
             ? 0.25
             : ride.vehicleType === "SUV"
-            ? 0.35
-            : 0.3);
+              ? 0.35
+              : 0.3);
         const distanceFare =
           (ride.actualDistance || ride.estimatedDistance || 0) *
           (ride.vehicleType === "sedan"
             ? 1.5
             : ride.vehicleType === "SUV"
-            ? 2.0
-            : 1.75);
+              ? 2.0
+              : 1.75);
 
         const subtotal = baseFare + distanceFare + timeFare;
         const tax = subtotal * 0.2; // 20% VAT
@@ -2652,8 +2940,8 @@ class SocketService {
           ride.vehicleType === "sedan"
             ? 8.0
             : ride.vehicleType === "SUV"
-            ? 10.0
-            : 9.0
+              ? 10.0
+              : 9.0,
         );
 
         fareBreakdown = {
@@ -2731,7 +3019,11 @@ class SocketService {
   stopAllRideStatusUpdates(rideId) {
     // Find all intervals for this ride
     const intervalsToStop = Array.from(this.activeRideIntervals.keys()).filter(
-      (key) => key.startsWith(`ride_status_${rideId}_`)
+      (key) => {
+        // Convert key to string to safely use startsWith
+        const keyString = String(key);
+        return keyString.startsWith(`ride_status_${rideId}_`);
+      },
     );
 
     intervalsToStop.forEach((intervalKey) => {
@@ -2759,7 +3051,9 @@ class SocketService {
     // This prevents duplicate intervals when rider reconnects
     const existingInterval = this.activeRideIntervals.get(intervalKey);
     if (existingInterval) {
-      console.log(`⚠️  Clearing existing interval for ride ${rideId}, user ${userId}`);
+      console.log(
+        `⚠️  Clearing existing interval for ride ${rideId}, user ${userId}`,
+      );
       clearInterval(existingInterval);
       this.activeRideIntervals.delete(intervalKey);
     }
@@ -2771,17 +3065,19 @@ class SocketService {
       } catch (error) {
         console.error(
           `Error sending ride status update for ride ${rideId}, user ${userId}:`,
-          error
+          error,
         );
         // Clear interval on persistent errors
         clearInterval(this.activeRideIntervals.get(intervalKey));
         this.activeRideIntervals.delete(intervalKey);
       }
     }, 10000); // 10 seconds
-    
+
     // Store the new interval
     this.activeRideIntervals.set(intervalKey, newInterval);
-    console.log(`✅ Started active ride updates for ride ${rideId}, user ${userId}`);
+    console.log(
+      `✅ Started active ride updates for ride ${rideId}, user ${userId}`,
+    );
   }
 
   /**
@@ -2841,11 +3137,11 @@ class SocketService {
               driverLocation.lat,
               driverLocation.lng,
               ride.pickup.lat,
-              ride.pickup.lng
+              ride.pickup.lng,
             );
             pickupEta = calculateETA(
               distanceToPickup,
-              driverLocation.speed || 30
+              driverLocation.speed || 30,
             );
           }
 
@@ -2854,11 +3150,11 @@ class SocketService {
               driverLocation.lat,
               driverLocation.lng,
               ride.dropoff.lat,
-              ride.dropoff.lng
+              ride.dropoff.lng,
             );
             dropoffEta = calculateETA(
               distanceToDropoff,
-              driverLocation.speed || 30
+              driverLocation.speed || 30,
             );
             remainingDistance = distanceToDropoff;
           }
@@ -2875,15 +3171,15 @@ class SocketService {
           (ride.vehicleType === "sedan"
             ? 0.25
             : ride.vehicleType === "SUV"
-            ? 0.35
-            : 0.3);
+              ? 0.35
+              : 0.3);
         const distanceFare =
           (ride.actualDistance || ride.estimatedDistance || 0) *
           (ride.vehicleType === "sedan"
             ? 1.5
             : ride.vehicleType === "SUV"
-            ? 2.0
-            : 1.75);
+              ? 2.0
+              : 1.75);
 
         const subtotal = baseFare + distanceFare + timeFare;
         const tax = subtotal * 0.2; // 20% VAT
@@ -2892,8 +3188,8 @@ class SocketService {
           ride.vehicleType === "sedan"
             ? 8.0
             : ride.vehicleType === "SUV"
-            ? 10.0
-            : 9.0
+              ? 10.0
+              : 9.0,
         );
 
         fareBreakdown = {
@@ -2950,12 +3246,12 @@ class SocketService {
         .to(`ride_status_${rideId}_${userId}`)
         .emit("ride_status_update", updateData);
       console.log(
-        `Ride status update sent for ride ${rideId} to user ${userId}`
+        `Ride status update sent for ride ${rideId} to user ${userId}`,
       );
     } catch (error) {
       console.error(
         `Error preparing ride status update for ride ${rideId}, user ${userId}:`,
-        error
+        error,
       );
     }
   }
@@ -2971,7 +3267,7 @@ class SocketService {
       clearInterval(this.activeRideIntervals.get(intervalKey));
       this.activeRideIntervals.delete(intervalKey);
       console.log(
-        `Stopped ride status updates for ride ${rideId}, user ${userId}`
+        `Stopped ride status updates for ride ${rideId}, user ${userId}`,
       );
     }
   }
@@ -3074,10 +3370,10 @@ class SocketService {
    */
   notifyAnalyticsUpdate(updateType, data) {
     if (this.io) {
-      this.io.to('admin_analytics').emit('analytics_update', {
+      this.io.to("admin_analytics").emit("analytics_update", {
         updateType,
         data,
-        timestamp: new Date()
+        timestamp: new Date(),
       });
       console.log(`📊 [ANALYTICS UPDATE] Type: ${updateType}`);
     }
@@ -3088,9 +3384,9 @@ class SocketService {
    * @param {Array} topDrivers - Updated top drivers list
    */
   notifyTopDriversUpdate(topDrivers) {
-    this.notifyAnalyticsUpdate('top_drivers', {
+    this.notifyAnalyticsUpdate("top_drivers", {
       topDrivers: topDrivers.slice(0, 10),
-      totalDrivers: topDrivers.length
+      totalDrivers: topDrivers.length,
     });
   }
 
@@ -3099,9 +3395,9 @@ class SocketService {
    * @param {Array} topRiders - Updated top riders list
    */
   notifyTopRidersUpdate(topRiders) {
-    this.notifyAnalyticsUpdate('top_riders', {
+    this.notifyAnalyticsUpdate("top_riders", {
       topRiders: topRiders.slice(0, 10),
-      totalRiders: topRiders.length
+      totalRiders: topRiders.length,
     });
   }
 
@@ -3113,16 +3409,16 @@ class SocketService {
   async notifyRealtimeAnalyticsEvent(eventType, eventData) {
     if (this.io) {
       // Send specific event to analytics subscribers
-      this.io.to('admin_analytics').emit('analytics_realtime_event', {
+      this.io.to("admin_analytics").emit("analytics_realtime_event", {
         eventType,
         data: eventData,
-        timestamp: new Date()
+        timestamp: new Date(),
       });
 
       // Also trigger a full analytics refresh for dashboard
-      this.io.to('admin_analytics').emit('analytics_refresh_needed', {
+      this.io.to("admin_analytics").emit("analytics_refresh_needed", {
         reason: eventType,
-        timestamp: new Date()
+        timestamp: new Date(),
       });
 
       console.log(`📊 [ANALYTICS EVENT] ${eventType}`);
@@ -3134,16 +3430,20 @@ class SocketService {
    * Called when admin dashboard connects
    */
   subscribeToAnalytics(socket) {
-    socket.join('admin_analytics');
-    console.log(`📊 [ANALYTICS SUBSCRIBE] Admin: ${socket.userName || socket.userId}`);
+    socket.join("admin_analytics");
+    console.log(
+      `📊 [ANALYTICS SUBSCRIBE] Admin: ${socket.userName || socket.userId}`,
+    );
   }
 
   /**
    * Unsubscribe admin from analytics updates
    */
   unsubscribeFromAnalytics(socket) {
-    socket.leave('admin_analytics');
-    console.log(`📊 [ANALYTICS UNSUBSCRIBE] Admin: ${socket.userName || socket.userId}`);
+    socket.leave("admin_analytics");
+    console.log(
+      `📊 [ANALYTICS UNSUBSCRIBE] Admin: ${socket.userName || socket.userId}`,
+    );
   }
 }
 
