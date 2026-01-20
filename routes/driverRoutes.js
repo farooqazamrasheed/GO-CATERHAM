@@ -193,6 +193,22 @@ router.put(
   rideController.rejectRide
 );
 
+// Document re-upload route
+router.put(
+  "/document/:documentType/reupload",
+  (req, res, next) => {
+    const { documentUpload } = require("../config/multerConfig");
+    const upload = documentUpload.single(req.params.documentType);
+    upload(req, res, (err) => {
+      if (err) {
+        return sendError(res, err.message || "Error uploading document", 400);
+      }
+      next();
+    });
+  },
+  driverController.reUploadDocument
+);
+
 // Driver management - for admins with permissions
 router.get(
   "/:driverId",

@@ -50,6 +50,19 @@ router.put(
   auditLoggers.approveDriver, // Reuse existing logger for document verification
   adminController.verifyDocument
 );
+router.put(
+  "/driver/:driverId/document/:documentType/reject",
+  parseFormData,
+  checkPermission("verify_documents"),
+  auditLoggers.rejectDriver,
+  adminController.rejectDocument
+);
+router.put(
+  "/driver/:driverId/document/:documentType/mark-missing",
+  checkPermission("verify_documents"),
+  auditLoggers.approveDriver,
+  adminController.markDocumentMissing
+);
 router.post(
   "/driver/:driverId/message",
   parseFormData,

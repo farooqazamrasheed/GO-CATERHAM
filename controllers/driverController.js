@@ -6,6 +6,81 @@ const { sendSuccess, sendError } = require("../utils/responseHelper");
 const path = require("path");
 const fs = require("fs");
 
+// Document Status Transition Validation Helper
+const validateStatusTransition = (currentStatus, action, document) => {
+  // Define valid transitions
+  const validTransitions = {
+    verify: ['not_uploaded', 'uploaded', 'pending_verification', 'rejected'],
+    reject: ['uploaded', 'pending_verification'],
+    mark_missing: ['not_uploaded'],
+    reupload: ['rejected', 'not_uploaded']
+  };
+
+  // Check if document exists for certain actions
+  if ((action === 'verify' || action === 'reject') && !document.url) {
+    return {
+      valid: false,
+      message: `Cannot ${action} a document that hasn't been uploaded`
+    };
+  }
+
+  // Check if document is already verified
+  if (action === 'verify' && currentStatus === 'verified') {
+    return {
+      valid: false,
+      message: 'Document is already verified. No need to verify again.'
+    };
+  }
+
+  // Cannot reject verified documents
+  if (action === 'reject' && currentStatus === 'verified') {
+    return {
+      valid: false,
+      message: 'Cannot reject a verified document. Please unverify it first or contact support.'
+    };
+  }
+
+  // Cannot mark uploaded document as missing
+  if (action === 'mark_missing' && document.url) {
+    return {
+      valid: false,
+      message: 'Cannot mark an uploaded document as missing. The document exists in the system.'
+    };
+  }
+
+  // Special validation for reupload
+  if (action === 'reupload' && currentStatus === 'verified') {
+    return {
+      valid: false,
+      message: 'Cannot re-upload a verified document. Your document has already been approved.'
+    };
+  }
+
+  if (action === 'reupload' && currentStatus === 'pending_verification') {
+    return {
+      valid: false,
+      message: 'Document is currently pending verification. Please wait for admin review before re-uploading.'
+    };
+  }
+
+  // Check if current status allows this action
+  if (validTransitions[action] && !validTransitions[action].includes(currentStatus)) {
+    const statusMap = {
+      not_uploaded: 'not uploaded',
+      uploaded: 'uploaded',
+      pending_verification: 'pending verification',
+      verified: 'verified',
+      rejected: 'rejected'
+    };
+    return {
+      valid: false,
+      message: `Cannot ${action} a document with status "${statusMap[currentStatus] || currentStatus}"`
+    };
+  }
+
+  return { valid: true };
+};
+
 // Surrey boundary coordinates (approximate polygon for Surrey, UK)
 const SURREY_BOUNDARY = {
   type: "Polygon",
@@ -1770,3 +1845,114 @@ async function getHotZones() {
     return [];
   }
 }
+
+// Re-upload rejected document
+exports.reUploadDocument = async (req, res) => {
+  try {
+    const { documentType } = req.params;
+    const driverId = req.user.id;
+
+    // Validate document type
+    const validDocumentTypes = [
+      "drivingLicenseFront",
+      "drivingLicenseBack",
+      "cnicFront",
+      "cnicBack",
+      "vehicleRegistration",
+      "insuranceCertificate",
+      "vehiclePhotoFront",
+      "vehiclePhotoSide",
+    ];
+
+    if (!validDocumentTypes.includes(documentType)) {
+      return sendError(res, "Invalid document type", 400);
+    }
+
+    // Check if file was uploaded
+    if (!req.file) {
+      return sendError(res, "No document file uploaded", 400);
+    }
+
+    // Get driver profile
+    const driver = await Driver.findOne({ user: driverId });
+    if (!driver) {
+      return sendError(res, "Driver profile not found", 404);
+    }
+
+    // Initialize documents object if it doesn't exist
+    if (!driver.documents) {
+      driver.documents = {};
+    }
+
+    if (!driver.documents[documentType]) {
+      driver.documents[documentType] = {};
+    }
+
+    const document = driver.documents[documentType];
+    const currentStatus = document.status || 'not_uploaded';
+
+    // Validate status transition
+    const transitionValidation = validateStatusTransition(currentStatus, 'reupload', document);
+    if (!transitionValidation.valid) {
+      return sendError(res, transitionValidation.message, 400);
+    }
+
+    // If there's an existing document, save it to previous versions
+    if (document.url) {
+      if (!document.previousVersions) {
+        document.previousVersions = [];
+      }
+      document.previousVersions.push({
+        url: document.url,
+        uploadedAt: document.uploadedAt,
+        rejectedAt: document.rejectedAt,
+        rejectionReason: document.rejectionReason,
+      });
+    }
+
+    // Update document with new file
+    document.url = req.file.path;
+    document.uploadedAt = new Date();
+    document.lastUploadedAt = new Date();
+    document.currentVersion = (document.currentVersion || 0) + 1;
+    document.status = 'pending_verification';
+    document.rejected = false;
+    document.rejectionReason = undefined;
+    document.rejectedAt = undefined;
+    document.rejectedBy = undefined;
+    document.verified = false;
+    document.verifiedAt = undefined;
+    document.verifiedBy = undefined;
+
+    await driver.save();
+
+    // Send real-time notification to admins about re-upload
+    const socketService = require("../services/socketService");
+    const user = await User.findById(driverId);
+
+    socketService.notifyUser("admin", "document_reuploaded", {
+      driverId: driver._id,
+      driverName: user?.fullName || "Unknown",
+      documentType: documentType,
+      version: document.currentVersion,
+      message: `Driver ${user?.fullName || "Unknown"} has re-uploaded ${documentType}`,
+      timestamp: new Date()
+    });
+
+    sendSuccess(
+      res,
+      {
+        driver,
+        documentType: documentType,
+        url: document.url,
+        version: document.currentVersion,
+        status: document.status,
+      },
+      "Document re-uploaded successfully and pending verification",
+      200
+    );
+  } catch (err) {
+    console.error("Re-upload document error:", err);
+    sendError(res, "Failed to re-upload document", 500);
+  }
+};

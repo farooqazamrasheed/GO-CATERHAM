@@ -18,6 +18,66 @@ const bcrypt = require("bcryptjs");
 const notificationService = require("../services/notificationService");
 const socketService = require("../services/socketService");
 
+// Document Status Transition Validation Helper
+const validateStatusTransition = (currentStatus, action, document) => {
+  // Define valid transitions
+  const validTransitions = {
+    verify: ['not_uploaded', 'uploaded', 'pending_verification', 'rejected'],
+    reject: ['uploaded', 'pending_verification'],
+    mark_missing: ['not_uploaded'],
+    reupload: ['rejected', 'not_uploaded']
+  };
+
+  // Check if document exists for certain actions
+  if ((action === 'verify' || action === 'reject') && !document.url) {
+    return {
+      valid: false,
+      message: `Cannot ${action} a document that hasn't been uploaded`
+    };
+  }
+
+  // Check if document is already verified
+  if (action === 'verify' && currentStatus === 'verified') {
+    return {
+      valid: false,
+      message: 'Document is already verified. No need to verify again.'
+    };
+  }
+
+  // Cannot reject verified documents
+  if (action === 'reject' && currentStatus === 'verified') {
+    return {
+      valid: false,
+      message: 'Cannot reject a verified document. Please unverify it first or contact support.'
+    };
+  }
+
+  // Cannot mark uploaded document as missing
+  if (action === 'mark_missing' && document.url) {
+    return {
+      valid: false,
+      message: 'Cannot mark an uploaded document as missing. The document exists in the system.'
+    };
+  }
+
+  // Check if current status allows this action
+  if (validTransitions[action] && !validTransitions[action].includes(currentStatus)) {
+    const statusMap = {
+      not_uploaded: 'not uploaded',
+      uploaded: 'uploaded',
+      pending_verification: 'pending verification',
+      verified: 'verified',
+      rejected: 'rejected'
+    };
+    return {
+      valid: false,
+      message: `Cannot ${action} a document with status "${statusMap[currentStatus] || currentStatus}"`
+    };
+  }
+
+  return { valid: true };
+};
+
 // Approve or reject driver
 exports.approveDriver = async (req, res, next) => {
   try {
@@ -469,10 +529,22 @@ exports.verifyDocument = async (req, res, next) => {
       return sendError(res, "Document not uploaded", 400);
     }
 
-    // Update document verification
+    const document = driver.documents[documentType];
+    const currentStatus = document.status || 'uploaded';
+
+    // Validate status transition
+    const transitionValidation = validateStatusTransition(currentStatus, 'verify', document);
+    if (!transitionValidation.valid) {
+      return sendError(res, transitionValidation.message, 400);
+    }
+
+    // Update document verification and status
     driver.documents[documentType].verified = true;
     driver.documents[documentType].verifiedAt = new Date();
     driver.documents[documentType].verifiedBy = req.user.id;
+    driver.documents[documentType].status = 'verified';
+    driver.documents[documentType].rejected = false;
+    driver.documents[documentType].rejectionReason = undefined;
 
     await driver.save();
 
@@ -536,6 +608,244 @@ exports.verifyDocument = async (req, res, next) => {
         verifiedDocument: documentType,
       },
       "Document verified successfully",
+      200
+    );
+  } catch (err) {
+    next(err);
+  }
+};
+
+// Reject individual document
+exports.rejectDocument = async (req, res, next) => {
+  try {
+    const { driverId, documentType } = req.params;
+    const { rejectionReason } = req.body;
+
+    if (!rejectionReason || rejectionReason.trim() === "") {
+      return sendError(res, "Rejection reason is required", 400);
+    }
+
+    // Validate document type
+    const validDocumentTypes = [
+      "drivingLicenseFront",
+      "drivingLicenseBack",
+      "cnicFront",
+      "cnicBack",
+      "vehicleRegistration",
+      "insuranceCertificate",
+      "vehiclePhotoFront",
+      "vehiclePhotoSide",
+    ];
+
+    if (!validDocumentTypes.includes(documentType)) {
+      return sendError(res, "Invalid document type", 400);
+    }
+
+    // Try to find by driver ID first, then by user ID
+    let driver = await Driver.findById(driverId);
+
+    if (!driver) {
+      driver = await Driver.findOne({ user: driverId });
+    }
+
+    if (!driver) {
+      return sendError(res, "Driver not found", 404);
+    }
+
+    // Check if document exists
+    if (
+      !driver.documents ||
+      !driver.documents[documentType] ||
+      !driver.documents[documentType].url
+    ) {
+      return sendError(res, "Document not uploaded", 400);
+    }
+
+    const document = driver.documents[documentType];
+    const currentStatus = document.status || 'uploaded';
+
+    // Validate status transition
+    const transitionValidation = validateStatusTransition(currentStatus, 'reject', document);
+    if (!transitionValidation.valid) {
+      return sendError(res, transitionValidation.message, 400);
+    }
+
+    // Save current document to previous versions if it exists
+    if (document.url) {
+      if (!document.previousVersions) {
+        document.previousVersions = [];
+      }
+      document.previousVersions.push({
+        url: document.url,
+        uploadedAt: document.uploadedAt,
+        rejectedAt: new Date(),
+        rejectionReason: rejectionReason,
+      });
+    }
+
+    // Update document rejection status
+    document.rejected = true;
+    document.rejectionReason = rejectionReason;
+    document.rejectedAt = new Date();
+    document.rejectedBy = req.user.id;
+    document.rejectionCount = (document.rejectionCount || 0) + 1;
+    document.status = 'rejected';
+    document.verified = false;
+    document.verifiedAt = undefined;
+    document.verifiedBy = undefined;
+
+    await driver.save();
+
+    // Get user for notifications
+    const user = await User.findById(driver.user);
+
+    // Real-time WebSocket notifications for document rejection
+    
+    // 1. Notify driver about document rejection
+    socketService.notifyUser(driver.user.toString(), "document_rejected", {
+      driverId: driver._id,
+      documentType: documentType,
+      rejectionReason: rejectionReason,
+      rejectionCount: document.rejectionCount,
+      message: `Document "${documentType}" has been rejected. Reason: ${rejectionReason}. Please re-upload a valid document.`,
+      timestamp: new Date()
+    });
+
+    // 2. Update driver dashboard with rejection status
+    socketService.notifyDriverDashboardUpdate(driver._id.toString(), {
+      documentRejection: {
+        documentType: documentType,
+        rejected: true,
+        rejectionReason: rejectionReason,
+        rejectionCount: document.rejectionCount
+      }
+    }, "document_rejected");
+
+    // 3. Notify admins about document rejection
+    socketService.notifyUser("admin", "admin_document_rejected", {
+      driverId: driver._id,
+      driverName: user?.fullName || "Unknown",
+      documentType: documentType,
+      rejectionReason: rejectionReason,
+      rejectedBy: req.user.fullName || req.user.id,
+      timestamp: new Date()
+    });
+
+    sendSuccess(
+      res,
+      {
+        driver,
+        rejectedDocument: documentType,
+        rejectionReason: rejectionReason,
+        rejectionCount: document.rejectionCount,
+      },
+      "Document rejected successfully",
+      200
+    );
+  } catch (err) {
+    next(err);
+  }
+};
+
+// Mark document as missing
+exports.markDocumentMissing = async (req, res, next) => {
+  try {
+    const { driverId, documentType } = req.params;
+
+    // Validate document type
+    const validDocumentTypes = [
+      "drivingLicenseFront",
+      "drivingLicenseBack",
+      "cnicFront",
+      "cnicBack",
+      "vehicleRegistration",
+      "insuranceCertificate",
+      "vehiclePhotoFront",
+      "vehiclePhotoSide",
+    ];
+
+    if (!validDocumentTypes.includes(documentType)) {
+      return sendError(res, "Invalid document type", 400);
+    }
+
+    // Try to find by driver ID first, then by user ID
+    let driver = await Driver.findById(driverId);
+
+    if (!driver) {
+      driver = await Driver.findOne({ user: driverId });
+    }
+
+    if (!driver) {
+      return sendError(res, "Driver not found", 404);
+    }
+
+    // Initialize document object if it doesn't exist
+    if (!driver.documents) {
+      driver.documents = {};
+    }
+
+    if (!driver.documents[documentType]) {
+      driver.documents[documentType] = {};
+    }
+
+    const document = driver.documents[documentType];
+    const currentStatus = document.status || 'not_uploaded';
+
+    // Validate status transition
+    const transitionValidation = validateStatusTransition(currentStatus, 'mark_missing', document);
+    if (!transitionValidation.valid) {
+      return sendError(res, transitionValidation.message, 400);
+    }
+
+    // Mark document as missing
+    document.status = 'not_uploaded';
+    document.markedMissingAt = new Date();
+    document.remindersSent = (document.remindersSent || 0) + 1;
+
+    await driver.save();
+
+    // Get user for notifications
+    const user = await User.findById(driver.user);
+
+    // Real-time WebSocket notifications for missing document
+    
+    // 1. Notify driver about missing document
+    socketService.notifyUser(driver.user.toString(), "document_missing", {
+      driverId: driver._id,
+      documentType: documentType,
+      message: `Document "${documentType}" is required but not uploaded. Please upload this document to complete your registration.`,
+      remindersSent: document.remindersSent,
+      timestamp: new Date()
+    });
+
+    // 2. Update driver dashboard with missing document status
+    socketService.notifyDriverDashboardUpdate(driver._id.toString(), {
+      documentMissing: {
+        documentType: documentType,
+        status: 'not_uploaded',
+        remindersSent: document.remindersSent
+      }
+    }, "document_missing");
+
+    // 3. Notify admins about missing document reminder
+    socketService.notifyUser("admin", "admin_document_missing_marked", {
+      driverId: driver._id,
+      driverName: user?.fullName || "Unknown",
+      documentType: documentType,
+      markedBy: req.user.fullName || req.user.id,
+      remindersSent: document.remindersSent,
+      timestamp: new Date()
+    });
+
+    sendSuccess(
+      res,
+      {
+        driver,
+        documentType: documentType,
+        status: 'not_uploaded',
+        remindersSent: document.remindersSent,
+      },
+      "Document marked as missing and driver notified",
       200
     );
   } catch (err) {

@@ -41,6 +41,29 @@ const driverSchema = new mongoose.Schema(
           type: mongoose.Schema.Types.ObjectId,
           ref: "User",
         },
+        status: {
+          type: String,
+          enum: ['not_uploaded', 'uploaded', 'pending_verification', 'verified', 'rejected'],
+          default: 'not_uploaded'
+        },
+        rejected: { type: Boolean, default: false },
+        rejectionReason: String,
+        rejectedAt: Date,
+        rejectedBy: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: "User",
+        },
+        rejectionCount: { type: Number, default: 0 },
+        markedMissingAt: Date,
+        remindersSent: { type: Number, default: 0 },
+        previousVersions: [{
+          url: String,
+          uploadedAt: Date,
+          rejectedAt: Date,
+          rejectionReason: String,
+        }],
+        currentVersion: { type: Number, default: 1 },
+        lastUploadedAt: Date,
       },
       drivingLicenseBack: {
         url: String,
@@ -51,6 +74,29 @@ const driverSchema = new mongoose.Schema(
           type: mongoose.Schema.Types.ObjectId,
           ref: "User",
         },
+        status: {
+          type: String,
+          enum: ['not_uploaded', 'uploaded', 'pending_verification', 'verified', 'rejected'],
+          default: 'not_uploaded'
+        },
+        rejected: { type: Boolean, default: false },
+        rejectionReason: String,
+        rejectedAt: Date,
+        rejectedBy: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: "User",
+        },
+        rejectionCount: { type: Number, default: 0 },
+        markedMissingAt: Date,
+        remindersSent: { type: Number, default: 0 },
+        previousVersions: [{
+          url: String,
+          uploadedAt: Date,
+          rejectedAt: Date,
+          rejectionReason: String,
+        }],
+        currentVersion: { type: Number, default: 1 },
+        lastUploadedAt: Date,
       },
       cnicFront: {
         url: String,
@@ -61,6 +107,29 @@ const driverSchema = new mongoose.Schema(
           type: mongoose.Schema.Types.ObjectId,
           ref: "User",
         },
+        status: {
+          type: String,
+          enum: ['not_uploaded', 'uploaded', 'pending_verification', 'verified', 'rejected'],
+          default: 'not_uploaded'
+        },
+        rejected: { type: Boolean, default: false },
+        rejectionReason: String,
+        rejectedAt: Date,
+        rejectedBy: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: "User",
+        },
+        rejectionCount: { type: Number, default: 0 },
+        markedMissingAt: Date,
+        remindersSent: { type: Number, default: 0 },
+        previousVersions: [{
+          url: String,
+          uploadedAt: Date,
+          rejectedAt: Date,
+          rejectionReason: String,
+        }],
+        currentVersion: { type: Number, default: 1 },
+        lastUploadedAt: Date,
       },
       cnicBack: {
         url: String,
@@ -71,6 +140,29 @@ const driverSchema = new mongoose.Schema(
           type: mongoose.Schema.Types.ObjectId,
           ref: "User",
         },
+        status: {
+          type: String,
+          enum: ['not_uploaded', 'uploaded', 'pending_verification', 'verified', 'rejected'],
+          default: 'not_uploaded'
+        },
+        rejected: { type: Boolean, default: false },
+        rejectionReason: String,
+        rejectedAt: Date,
+        rejectedBy: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: "User",
+        },
+        rejectionCount: { type: Number, default: 0 },
+        markedMissingAt: Date,
+        remindersSent: { type: Number, default: 0 },
+        previousVersions: [{
+          url: String,
+          uploadedAt: Date,
+          rejectedAt: Date,
+          rejectionReason: String,
+        }],
+        currentVersion: { type: Number, default: 1 },
+        lastUploadedAt: Date,
       },
       vehicleRegistration: {
         url: String,
@@ -81,6 +173,29 @@ const driverSchema = new mongoose.Schema(
           type: mongoose.Schema.Types.ObjectId,
           ref: "User",
         },
+        status: {
+          type: String,
+          enum: ['not_uploaded', 'uploaded', 'pending_verification', 'verified', 'rejected'],
+          default: 'not_uploaded'
+        },
+        rejected: { type: Boolean, default: false },
+        rejectionReason: String,
+        rejectedAt: Date,
+        rejectedBy: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: "User",
+        },
+        rejectionCount: { type: Number, default: 0 },
+        markedMissingAt: Date,
+        remindersSent: { type: Number, default: 0 },
+        previousVersions: [{
+          url: String,
+          uploadedAt: Date,
+          rejectedAt: Date,
+          rejectionReason: String,
+        }],
+        currentVersion: { type: Number, default: 1 },
+        lastUploadedAt: Date,
       },
       insuranceCertificate: {
         url: String,
@@ -91,6 +206,29 @@ const driverSchema = new mongoose.Schema(
           type: mongoose.Schema.Types.ObjectId,
           ref: "User",
         },
+        status: {
+          type: String,
+          enum: ['not_uploaded', 'uploaded', 'pending_verification', 'verified', 'rejected'],
+          default: 'not_uploaded'
+        },
+        rejected: { type: Boolean, default: false },
+        rejectionReason: String,
+        rejectedAt: Date,
+        rejectedBy: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: "User",
+        },
+        rejectionCount: { type: Number, default: 0 },
+        markedMissingAt: Date,
+        remindersSent: { type: Number, default: 0 },
+        previousVersions: [{
+          url: String,
+          uploadedAt: Date,
+          rejectedAt: Date,
+          rejectionReason: String,
+        }],
+        currentVersion: { type: Number, default: 1 },
+        lastUploadedAt: Date,
       },
       vehiclePhotoFront: {
         url: String,
@@ -101,6 +239,29 @@ const driverSchema = new mongoose.Schema(
           type: mongoose.Schema.Types.ObjectId,
           ref: "User",
         },
+        status: {
+          type: String,
+          enum: ['not_uploaded', 'uploaded', 'pending_verification', 'verified', 'rejected'],
+          default: 'not_uploaded'
+        },
+        rejected: { type: Boolean, default: false },
+        rejectionReason: String,
+        rejectedAt: Date,
+        rejectedBy: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: "User",
+        },
+        rejectionCount: { type: Number, default: 0 },
+        markedMissingAt: Date,
+        remindersSent: { type: Number, default: 0 },
+        previousVersions: [{
+          url: String,
+          uploadedAt: Date,
+          rejectedAt: Date,
+          rejectionReason: String,
+        }],
+        currentVersion: { type: Number, default: 1 },
+        lastUploadedAt: Date,
       },
       vehiclePhotoSide: {
         url: String,
@@ -111,6 +272,29 @@ const driverSchema = new mongoose.Schema(
           type: mongoose.Schema.Types.ObjectId,
           ref: "User",
         },
+        status: {
+          type: String,
+          enum: ['not_uploaded', 'uploaded', 'pending_verification', 'verified', 'rejected'],
+          default: 'not_uploaded'
+        },
+        rejected: { type: Boolean, default: false },
+        rejectionReason: String,
+        rejectedAt: Date,
+        rejectedBy: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: "User",
+        },
+        rejectionCount: { type: Number, default: 0 },
+        markedMissingAt: Date,
+        remindersSent: { type: Number, default: 0 },
+        previousVersions: [{
+          url: String,
+          uploadedAt: Date,
+          rejectedAt: Date,
+          rejectionReason: String,
+        }],
+        currentVersion: { type: Number, default: 1 },
+        lastUploadedAt: Date,
       },
     },
     status: {
