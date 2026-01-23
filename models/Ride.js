@@ -25,18 +25,18 @@ const rideSchema = new mongoose.Schema(
     status: {
       type: String,
       enum: [
-        "requested",
-        "searching",
-        "assigned",
-        "accepted",
-        "going-to-pickup",
-        "arrived",
-        "in_progress",
-        "completed",
-        "cancelled",
-        "scheduled",
+        "pending",        // Rider books, finding driver
+        "searching",      // System searching for drivers (optional)
+        "assigned",       // Driver auto-assigned (optional)
+        "accepted",       // Driver accepted - on the way to pickup
+        "going-to-pickup",// (kept for backward compatibility)
+        "arrived",        // Driver arrived at pickup (optional)
+        "in_progress",    // Ride started (rider picked up)
+        "completed",      // Ride finished
+        "cancelled",      // Ride cancelled
+        "scheduled",      // Scheduled for future
       ],
-      default: "requested",
+      default: "pending",
     },
     scheduledTime: { type: Date },
     estimatedPickupTime: { type: Number }, // minutes

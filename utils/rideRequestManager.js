@@ -41,8 +41,12 @@ class RideRequestManager {
     console.log('✅ Driver accepting ride:', rideId);
     console.log('🚫 Clearing timeout for ride:', rideId);
     
-    // Clear the timer
+    // CRITICAL: Clear the timer IMMEDIATELY before doing anything else
+    // This prevents race condition where timeout fires while we're updating
     this.clearTimer(rideId);
+    
+    // Also remove from request queue immediately
+    this.requestQueue.delete(rideId);
 
     try {
       // Find the driver document by user ID
@@ -51,9 +55,9 @@ class RideRequestManager {
         throw new Error("Driver not found");
       }
 
-      // Update ride status to going-to-pickup when driver accepts
+      // Update ride status to accepted when driver accepts (per doc.md requirements)
       await Ride.findByIdAndUpdate(rideId, {
-        status: "going-to-pickup",
+        status: "accepted",
         driver: driver._id, // Use driver document ID, not user ID
         acceptedAt: new Date(),
       });
@@ -154,6 +158,12 @@ class RideRequestManager {
    */
   async autoRejectRide(rideId) {
     try {
+      // SAFETY CHECK: If ride is not in our active queue, it was already handled
+      if (!this.requestQueue.has(rideId)) {
+        console.log('⚠️ Ride not in queue, already handled (accepted or cancelled)');
+        return null;
+      }
+
       // Clear timer
       this.clearTimer(rideId);
 
@@ -162,7 +172,7 @@ class RideRequestManager {
       
       console.log('⏰ Timeout handler executing for ride:', rideId);
       console.log('📊 Current ride status:', currentRide?.status);
-      console.log('🔍 Will cancel?', currentRide?.status === 'searching' || currentRide?.status === 'requested' || currentRide?.status === 'pending');
+      console.log('🔍 Will cancel?', currentRide?.status === 'searching' || currentRide?.status === 'pending');
       
       // CRITICAL FIX: Only cancel if ride is still in pending/searching state
       // If driver has already accepted (status = 'accepted'), don't cancel!

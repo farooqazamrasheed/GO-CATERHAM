@@ -13,6 +13,7 @@ const RewardTransaction = require("../models/RewardTransaction");
 const Wallet = require("../models/Wallet");
 const { sendSuccess, sendError } = require("../utils/responseHelper");
 const { auditLoggers } = require("../middlewares/audit");
+const { getRideId, getUserId, getDriverId, getRiderId, getFlexibleId } = require("../utils/flexibleParams");
 const { driverPhotoUpload } = require("../config/multerConfig");
 const bcrypt = require("bcryptjs");
 const notificationService = require("../services/notificationService");
@@ -82,11 +83,11 @@ const validateStatusTransition = (currentStatus, action, document) => {
 exports.approveDriver = async (req, res, next) => {
   try {
     // Try to find by driver ID first, then by user ID
-    let driver = await Driver.findById(req.params.driverId);
+    let driver = await Driver.findById(getDriverId(req));
 
     if (!driver) {
       // If not found by driver ID, try to find by user ID
-      driver = await Driver.findOne({ user: req.params.driverId });
+      driver = await Driver.findOne({ user: getDriverId(req) });
     }
 
     if (!driver) {
@@ -197,11 +198,11 @@ exports.approveDriver = async (req, res, next) => {
 exports.rejectDriver = async (req, res, next) => {
   try {
     // Try to find by driver ID first, then by user ID
-    let driver = await Driver.findById(req.params.driverId);
+    let driver = await Driver.findById(getDriverId(req));
 
     if (!driver) {
       // If not found by driver ID, try to find by user ID
-      driver = await Driver.findOne({ user: req.params.driverId });
+      driver = await Driver.findOne({ user: getDriverId(req) });
     }
 
     if (!driver) {
@@ -318,11 +319,11 @@ exports.rejectDriverCustom = async (req, res, next) => {
     }
 
     // Try to find by driver ID first, then by user ID
-    let driver = await Driver.findById(req.params.driverId);
+    let driver = await Driver.findById(getDriverId(req));
 
     if (!driver) {
       // If not found by driver ID, try to find by user ID
-      driver = await Driver.findOne({ user: req.params.driverId });
+      driver = await Driver.findOne({ user: getDriverId(req) });
     }
 
     if (!driver) {
@@ -2582,7 +2583,7 @@ exports.getRiderDetails = async (req, res) => {
     // Get active ride
     const activeRide = await Ride.findOne({
       rider: rider._id,
-      status: { $in: ["requested", "accepted", "in_progress"] },
+      status: { $in: ["pending", "accepted", "in_progress"] },
     })
       .populate("driver", "user vehicle")
       .populate({
@@ -4015,7 +4016,7 @@ exports.getRealtimeAnalytics = async (req, res) => {
       Driver.countDocuments({ status: 'busy', isApproved: 'approved', activeStatus: 'active' }),
       Driver.countDocuments({ status: 'offline', isApproved: 'approved', activeStatus: 'active' }),
       Ride.countDocuments({ status: { $in: ['accepted', 'in_progress'] } }),
-      Ride.countDocuments({ status: { $in: ['requested', 'searching', 'assigned'] } }),
+      Ride.countDocuments({ status: { $in: ['pending', 'searching', 'assigned'] } }),
       Ride.countDocuments({ createdAt: { $gte: todayStart } }),
       Ride.countDocuments({ status: 'completed', createdAt: { $gte: todayStart } }),
       Ride.countDocuments({ status: 'cancelled', createdAt: { $gte: todayStart } }),

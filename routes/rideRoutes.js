@@ -62,53 +62,47 @@ router.get(
   require("../controllers/riderController").getRideHistory
 ); // Alias for rider ride history
 router.get(
-  "/:rideId/status",
+  "/:id/status",
   checkPermission("view_ride_status"),
   rideController.getRideStatus
 );
 router.get(
-  "/:rideId/driver-location",
+  "/:id/driver-location",
   checkPermission("view_ride_status"),
   rideController.getDriverLocation
 );
 router.put(
-  "/:rideId/cancel",
+  "/:id/cancel",
   formDataParser.none(), // Parse form-data fields
   checkPermission("cancel_ride"),
   rideController.cancelRide
 );
 
-// Driver actions
-router.put(
-  "/:rideId/accept",
-  checkPermission("accept_ride"),
-  rideController.acceptRide
-);
-router.put(
-  "/:rideId/reject",
-  formDataParser.none(), // Parse form-data fields
-  checkPermission("reject_ride"),
-  rideController.rejectRide
-);
-router.put(
-  "/:rideId/arrived",
-  checkPermission("start_ride"),
-  rideController.markDriverArrived
-);
-router.put(
-  "/:rideId/start",
-  checkPermission("start_ride"),
-  rideController.startRide
-);
-router.put(
-  "/:rideId/complete",
-  checkPermission("complete_ride"),
-  rideController.completeRide
-);
+// Driver actions - Support both :id and :rideId for flexibility
+router.put("/:id/accept", checkPermission("accept_ride"), rideController.acceptRide);
+router.put("/:rideId/accept", checkPermission("accept_ride"), rideController.acceptRide); // Alias
+
+router.put("/:id/reject", formDataParser.none(), checkPermission("reject_ride"), rideController.rejectRide);
+router.put("/:rideId/reject", formDataParser.none(), checkPermission("reject_ride"), rideController.rejectRide); // Alias
+
+router.put("/:id/arrived", checkPermission("start_ride"), rideController.markDriverArrived);
+router.put("/:rideId/arrived", checkPermission("start_ride"), rideController.markDriverArrived); // Alias
+router.patch("/:id/arrived", checkPermission("start_ride"), rideController.markDriverArrived); // PATCH alias
+router.patch("/:rideId/arrived", checkPermission("start_ride"), rideController.markDriverArrived); // PATCH alias
+
+router.put("/:id/start", checkPermission("start_ride"), rideController.startRide);
+router.put("/:rideId/start", checkPermission("start_ride"), rideController.startRide); // Alias
+router.patch("/:id/start", checkPermission("start_ride"), rideController.startRide); // PATCH alias
+router.patch("/:rideId/start", checkPermission("start_ride"), rideController.startRide); // PATCH alias
+
+router.put("/:id/complete", checkPermission("complete_ride"), rideController.completeRide);
+router.put("/:rideId/complete", checkPermission("complete_ride"), rideController.completeRide); // Alias
+router.patch("/:id/complete", checkPermission("complete_ride"), rideController.completeRide); // PATCH alias
+router.patch("/:rideId/complete", checkPermission("complete_ride"), rideController.completeRide); // PATCH alias
 
 // Tip system
 router.post(
-  "/:rideId/tip",
+  "/:id/tip",
   formDataParser.none(), // Parse form-data fields
   checkPermission("add_tip"),
   rideController.addTip
@@ -116,14 +110,14 @@ router.post(
 
 // Rating system
 router.post(
-  "/:rideId/rate-driver",
+  "/:id/rate-driver",
   formDataParser.none(), // Parse form-data fields
   checkPermission("rate_driver"),
   rideController.rateDriver
 );
 
 router.post(
-  "/:rideId/rate-rider",
+  "/:id/rate-rider",
   formDataParser.none(), // Parse form-data fields
   checkPermission("rate_rider"),
   rideController.rateRider

@@ -1,6 +1,21 @@
+// ===================================================================
+// MODEL IMPORTS - Centralized at the top for better performance
+// ===================================================================
 const User = require("../models/User");
+const Driver = require("../models/Driver");
+const Rider = require("../models/Rider");
+const Ride = require("../models/Ride");
+const LiveLocation = require("../models/LiveLocation");
+const Wallet = require("../models/Wallet");
+const Payment = require("../models/Payment");
+const PaymentMethod = require("../models/PaymentMethod");
+const RewardTransaction = require("../models/RewardTransaction");
+const { verifyToken } = require("../utils/jwt");
+const mongoose = require("mongoose");
 
-// Helper functions for distance and ETA calculations
+// ===================================================================
+// HELPER FUNCTIONS - Distance and ETA calculations
+// ===================================================================
 function calculateDistance(lat1, lon1, lat2, lon2) {
   const R = 6371; // Earth's radius in kilometers
   const dLat = ((lat2 - lat1) * Math.PI) / 180;
@@ -33,6 +48,111 @@ class SocketService {
     this.riderLocations = new Map(); // Map<riderId, {latitude, longitude, timestamp}>
   }
 
+  // ===================================================================
+  // HELPER METHODS - Utilities for common operations
+  // ===================================================================
+
+  /**
+   * Get current timestamp
+   * @returns {Date} Current date object
+   */
+  getCurrentTimestamp() {
+    return new Date();
+  }
+
+  /**
+   * Get current timestamp in ISO format
+   * @returns {string} ISO formatted timestamp
+   */
+  getCurrentTimestampISO() {
+    return new Date().toISOString();
+  }
+
+  /**
+   * Validate geographic coordinates
+   * @param {number|string} latitude - Latitude value
+   * @param {number|string} longitude - Longitude value
+   * @returns {Object} Validation result with parsed values
+   */
+  validateCoordinates(latitude, longitude) {
+    const lat = parseFloat(latitude);
+    const lng = parseFloat(longitude);
+
+    if (isNaN(lat) || isNaN(lng)) {
+      return { 
+        valid: false, 
+        error: "Coordinates must be valid numbers",
+        lat: null,
+        lng: null
+      };
+    }
+
+    if (lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+      return { 
+        valid: false, 
+        error: "Coordinates out of valid range",
+        lat: null,
+        lng: null
+      };
+    }
+
+    return { valid: true, lat, lng, error: null };
+  }
+
+  /**
+   * Generic notification method for sending to specific rooms
+   * @param {string} roomName - Room name to send to
+   * @param {string} event - Event name
+   * @param {Object} data - Event data
+   */
+  notifyRoom(roomName, event, data) {
+    if (this.io) {
+      this.io.to(roomName).emit(event, data);
+      console.log(`Notification sent to room ${roomName}: ${event}`);
+    }
+  }
+
+  /**
+   * Handle socket errors in a standardized way
+   * @param {Object} socket - Socket instance
+   * @param {string} eventName - Event name that caused error
+   * @param {Error} error - Error object
+   * @param {string} context - Additional context
+   */
+  handleSocketError(socket, eventName, error, context = '') {
+    const errorMessage = error.message || 'An error occurred';
+    console.error(`Error in ${eventName}${context ? ': ' + context : ''}`, error);
+    
+    socket.emit(`${eventName}_error`, {
+      message: errorMessage,
+      timestamp: this.getCurrentTimestamp()
+    });
+  }
+
+  /**
+   * Log info messages (only in development)
+   * @param {string} message - Log message
+   * @param {*} data - Optional data to log
+   */
+  logInfo(message, data = null) {
+    if (process.env.NODE_ENV !== 'production') {
+      if (data) {
+        console.log(message, data);
+      } else {
+        console.log(message);
+      }
+    }
+  }
+
+  /**
+   * Log error messages
+   * @param {string} message - Error message
+   * @param {Error} error - Error object
+   */
+  logError(message, error) {
+    console.error(`[ERROR] ${message}`, error);
+  }
+
   /**
    * Initialize socket service with io instance
    * @param {Object} io - Socket.io instance
@@ -52,7 +172,7 @@ class SocketService {
     this.connectedUsers = this.connectedUsers || new Map();
 
     this.io.on("connection", async (socket) => {
-      const timestamp = new Date().toISOString();
+      const timestamp = this.getCurrentTimestampISO();
       console.log(`\n${"=".repeat(60)}`);
       console.log(`🔌 [WEBSOCKET CONNECTED]`);
       console.log(`   Socket ID: ${socket.id}`);
@@ -84,12 +204,10 @@ class SocketService {
 
         console.log(`   ✅ Token received, length: ${token.length}`);
 
-        const { verifyToken } = require("../utils/jwt");
         const decoded = verifyToken(token);
         const userId = decoded.id;
 
         // Get user details for logging
-        const User = require("../models/User");
         const user = await User.findById(userId).select("fullName email role");
         const userName = user?.fullName || "Unknown";
         const userRole = user?.role || "unknown";
@@ -123,7 +241,7 @@ class SocketService {
           message: "Connected successfully",
           userId: userId,
           socketId: socket.id,
-          timestamp: new Date().toISOString(),
+          timestamp: this.getCurrentTimestampISO(),
         });
       } catch (error) {
         console.log(`   ❌ Auth Failed: ${error.message}`);
@@ -139,7 +257,7 @@ class SocketService {
       // Handle ping from client (custom heartbeat for mobile apps)
       socket.on("ping_server", (data) => {
         socket.emit("pong_server", {
-          timestamp: new Date().toISOString(),
+          timestamp: this.getCurrentTimestampISO(),
           received: data?.timestamp || null,
         });
       });
@@ -151,19 +269,23 @@ class SocketService {
         );
       });
 
-      //-----------------------------------------------------------------
-      // // Log all incoming socket events
-      // socket.onAny((event, ...args) => {
-      //   console.log(`Socket event received: ${event}`, args);
-      // });
-      //-----------------------------------------------------------------
 
       // Dashboard subscription for real-time updates
       // Support both 'subscribe_dashboard' and 'subscribe_to_dashboard' event names
-      const handleDashboardSubscription = (data) => {
+      const handleDashboardSubscription = async (data) => {
         const { userId, userType, latitude, longitude } = data;
         if (userId && userType === "driver") {
-          socket.join(`dashboard_${userId}`);
+          // API Contract: Join 'driver-driverId' room (plus old format for compatibility)
+          // Note: We need driverId but we have userId - find Driver doc
+          const Driver = require("../models/Driver");
+          const driverDoc = await Driver.findOne({ user: userId });
+          
+          if (driverDoc) {
+            socket.join(`driver-${driverDoc._id}`); // API Contract format
+            socket.driverId = driverDoc._id.toString(); // Store for later use
+          }
+          socket.join(`dashboard_${userId}`); // Keep for backward compatibility
+          
           console.log(
             `📊 [DASHBOARD SUBSCRIBE] Driver: ${socket.userName || userId} (${userType})`,
           );
@@ -176,7 +298,7 @@ class SocketService {
             success: true,
             userId: userId,
             userType: userType,
-            timestamp: new Date().toISOString(),
+            timestamp: this.getCurrentTimestampISO(),
           });
 
           // Send initial dashboard data
@@ -196,9 +318,22 @@ class SocketService {
             });
           }
         } else if (userId && userType === "rider") {
-          socket.join(`rider_dashboard_${userId}`);
+          // API Contract: Join 'rider-riderId' room (plus userId format for compatibility)
+          const Rider = require("../models/Rider");
+          const normalizedUserId = typeof userId === "object" && userId !== null
+            ? userId._id?.toString() || userId.id?.toString() || userId
+            : userId;
+
+          const riderDoc = await Rider.findOne({ user: normalizedUserId });
+
+          socket.join(`rider-${normalizedUserId}`); // userId format
+          if (riderDoc) {
+            socket.join(`rider-${riderDoc._id}`); // riderId format
+            socket.riderId = riderDoc._id.toString();
+          }
+          socket.join(`rider_dashboard_${normalizedUserId}`); // Keep for backward compatibility
           console.log(
-            `📊 [DASHBOARD SUBSCRIBE] Rider: ${socket.userName || userId} (${userType})`,
+            `📊 [DASHBOARD SUBSCRIBE] Rider: ${socket.userName || normalizedUserId} (${userType})`,
           );
           console.log(
             `   Location: ${latitude ? `(${latitude}, ${longitude})` : "Not provided"}`,
@@ -209,7 +344,7 @@ class SocketService {
             success: true,
             userId: userId,
             userType: userType,
-            timestamp: new Date().toISOString(),
+            timestamp: this.getCurrentTimestampISO(),
           });
 
           // Cache rider location for real-time driver updates
@@ -217,7 +352,7 @@ class SocketService {
             this.riderLocations.set(userId, {
               latitude: parseFloat(latitude),
               longitude: parseFloat(longitude),
-              timestamp: new Date(),
+              timestamp: this.getCurrentTimestamp(),
             });
             console.log(`   📍 Rider location cached for real-time updates`);
           }
@@ -229,7 +364,7 @@ class SocketService {
           socket.emit("dashboard_subscribed", {
             success: false,
             message: "userId and userType are required",
-            timestamp: new Date().toISOString(),
+            timestamp: this.getCurrentTimestampISO(),
           });
         }
       };
@@ -246,7 +381,7 @@ class SocketService {
         if (!userId || !latitude || !longitude) {
           socket.emit("location_update_error", {
             message: "Missing required fields: userId, latitude, longitude",
-            timestamp: new Date(),
+            timestamp: this.getCurrentTimestamp(),
           });
           return;
         }
@@ -261,13 +396,13 @@ class SocketService {
           );
           socket.emit("location_update_success", {
             message: "Location updated successfully",
-            timestamp: new Date(),
+            timestamp: this.getCurrentTimestamp(),
           });
         } catch (error) {
           console.error("Error updating driver location via socket:", error);
           socket.emit("location_update_error", {
             message: error.message || "Failed to update location",
-            timestamp: new Date(),
+            timestamp: this.getCurrentTimestamp(),
           });
         }
       });
@@ -291,7 +426,7 @@ class SocketService {
         if (!userId || !latitude || !longitude) {
           socket.emit("rider_location_update_error", {
             message: "Missing required fields: latitude, longitude",
-            timestamp: new Date(),
+            timestamp: this.getCurrentTimestamp(),
           });
           return;
         }
@@ -300,7 +435,7 @@ class SocketService {
         this.riderLocations.set(userId, {
           latitude: parseFloat(latitude),
           longitude: parseFloat(longitude),
-          timestamp: new Date(),
+          timestamp: this.getCurrentTimestamp(),
         });
 
         // Get updated nearby drivers for this rider
@@ -318,7 +453,7 @@ class SocketService {
         socket.emit("rider_location_update_success", {
           message: "Location updated successfully",
           nearbyDriversCount: nearbyDrivers.length,
-          timestamp: new Date(),
+          timestamp: this.getCurrentTimestamp(),
         });
       });
 
@@ -354,7 +489,7 @@ class SocketService {
         socket.emit("driver_subscription_success", {
           message: "Subscribed to driver location updates",
           driverId: driverId,
-          timestamp: new Date().toISOString(),
+          timestamp: this.getCurrentTimestampISO(),
         });
 
         // Send current driver location immediately if available
@@ -379,7 +514,7 @@ class SocketService {
         socket.emit("driver_unsubscription_success", {
           message: "Unsubscribed from driver location updates",
           driverId: driverId,
-          timestamp: new Date().toISOString(),
+          timestamp: this.getCurrentTimestampISO(),
         });
       });
 
@@ -405,7 +540,7 @@ class SocketService {
         socket.emit("ride_subscription_success", {
           message: "Subscribed to ride updates",
           rideId: rideId,
-          timestamp: new Date().toISOString(),
+          timestamp: this.getCurrentTimestampISO(),
         });
       });
 
@@ -493,13 +628,13 @@ class SocketService {
           socket.emit("analytics_subscribed", {
             success: true,
             message: "Subscribed to analytics updates",
-            timestamp: new Date(),
+            timestamp: this.getCurrentTimestamp(),
           });
         } else {
           socket.emit("analytics_subscribed", {
             success: false,
             message: "Only admins can subscribe to analytics",
-            timestamp: new Date(),
+            timestamp: this.getCurrentTimestamp(),
           });
         }
       });
@@ -513,7 +648,7 @@ class SocketService {
       });
 
       socket.on("disconnect", (reason) => {
-        const timestamp = new Date().toISOString();
+        const timestamp = this.getCurrentTimestampISO();
         const connectedInfo = this.connectedUsers?.get(socket.id);
         const connectionDuration = connectedInfo
           ? Math.round((Date.now() - connectedInfo.connectedAt) / 1000)
@@ -630,9 +765,6 @@ class SocketService {
    * and sends reminders to update their location
    */
   startDriverLocationPolling() {
-    const Driver = require("../models/Driver");
-    const LiveLocation = require("../models/LiveLocation");
-
     // Check every 60 seconds for online drivers without recent locations
     this.driverLocationCheckInterval = setInterval(async () => {
       try {
@@ -700,7 +832,7 @@ class SocketService {
                     (Date.now() - new Date(anyLocation.timestamp)) / 1000 / 60,
                   )
                 : null,
-              timestamp: new Date(),
+              timestamp: this.getCurrentTimestamp(),
             });
 
             // Also send to dashboard subscribers (using User ID)
@@ -708,7 +840,7 @@ class SocketService {
               type: warningType,
               message: message,
               requiresAction: warningType !== "location_update_needed",
-              timestamp: new Date(),
+              timestamp: this.getCurrentTimestamp(),
             });
           }
         }
@@ -762,9 +894,6 @@ class SocketService {
    */
   async sendCurrentDriverLocation(socket, driverId) {
     try {
-      const LiveLocation = require("../models/LiveLocation");
-      const Driver = require("../models/Driver");
-
       // Get driver's current location
       const location = await LiveLocation.findOne({ driver: driverId }).sort({
         timestamp: -1,
@@ -836,7 +965,7 @@ class SocketService {
         longitude: locationData.longitude,
         heading: locationData.heading || 0,
         speed: locationData.speed || 0,
-        timestamp: new Date().toISOString(),
+        timestamp: this.getCurrentTimestampISO(),
       });
 
       console.log(`   ✅ Broadcast sent to ${subscriberCount} subscriber(s)`);
@@ -875,36 +1004,21 @@ class SocketService {
     heading = 0,
     speed = 0,
   ) {
-    const Driver = require("../models/Driver");
-    const LiveLocation = require("../models/LiveLocation");
-
     try {
-      // Validate coordinates first
-      const lat = parseFloat(latitude);
-      const lng = parseFloat(longitude);
-
-      if (isNaN(lat) || isNaN(lng)) {
-        console.error("Invalid driver location coordinates received:", {
+      // Validate coordinates using helper method
+      const coords = this.validateCoordinates(latitude, longitude);
+      if (!coords.valid) {
+        console.error("Invalid driver location coordinates:", {
           userId,
           latitude,
           longitude,
-          parsedLat: lat,
-          parsedLng: lng,
-          message: "Latitude and longitude must be valid numbers",
+          error: coords.error,
         });
         return null;
       }
 
-      // Validate ranges
-      if (lat < -90 || lat > 90 || lng < -180 || lng > 180) {
-        console.error("Driver location coordinates out of range:", {
-          userId,
-          latitude: lat,
-          longitude: lng,
-          message: "Coordinates must be within valid ranges",
-        });
-        return null;
-      }
+      const lat = coords.lat;
+      const lng = coords.lng;
 
       // Find driver by user ID
       const driver = await Driver.findOne({ user: userId });
@@ -930,7 +1044,7 @@ class SocketService {
         longitude: lng,
         heading: heading ? parseFloat(heading) : 0,
         speed: speed ? parseFloat(speed) : 0,
-        timestamp: new Date(),
+        timestamp: this.getCurrentTimestamp(),
         location: {
           type: "Point",
           coordinates: [lng, lat], // GeoJSON format: [longitude, latitude]
@@ -1054,8 +1168,41 @@ class SocketService {
    */
   notifyUser(userId, event, data) {
     if (this.io) {
-      this.io.to(userId).emit(event, data);
-      console.log(`Notification sent to user ${userId}: ${event}`);
+      // Normalize userId (handle object or stringified object)
+      const normalizedUserId = (() => {
+        if (typeof userId === "object" && userId !== null) {
+          return userId._id?.toString() || userId.id?.toString() || null;
+        }
+        if (typeof userId === "string" && userId.includes("_id")) {
+          // Attempt to extract ObjectId from stringified object
+          const match = userId.match(/ObjectId\('([a-f0-9]{24})'\)/i) || userId.match(/_id:\s*new ObjectId\('([a-f0-9]{24})'\)/i);
+          return match ? match[1] : userId;
+        }
+        return userId;
+      })();
+
+      if (!normalizedUserId) {
+        console.log(`DEBUG [notifyUser]: Could not normalize userId for event ${event}`);
+        return;
+      }
+
+      // API Contract: Use 'rider-riderId' + 'rider-userId' formats
+      this.io.to(normalizedUserId).emit(event, data);
+      this.io.to(`rider-${normalizedUserId}`).emit(event, data); // userId format
+      this.io.to(`rider_dashboard_${normalizedUserId}`).emit(event, data); // backward compatibility
+
+      // Also send to riderId room if available (only if userId is a valid ObjectId)
+      if (mongoose.Types.ObjectId.isValid(normalizedUserId)) {
+        this.getRiderIdFromUserId(normalizedUserId).then((riderId) => {
+          if (riderId) {
+            this.io.to(`rider-${riderId}`).emit(event, data);
+          }
+        }).catch((error) => {
+          console.log(`DEBUG [notifyUser]: Could not resolve riderId for user ${normalizedUserId}: ${error.message}`);
+        });
+      }
+
+      console.log(`Notification sent to user ${normalizedUserId}: ${event}`);
     }
   }
 
@@ -1095,11 +1242,6 @@ class SocketService {
    */
   async sendInitialDashboardData(driverId, latitude, longitude) {
     try {
-      // Import required models and functions
-      const Driver = require("../models/Driver");
-      const Ride = require("../models/Ride");
-      const LiveLocation = require("../models/LiveLocation");
-
       // Get driver profile
       const driver = await Driver.findOne({ user: driverId });
       if (!driver) return;
@@ -1145,7 +1287,7 @@ class SocketService {
         },
         nearbyDrivers,
         nearbyRideRequests: nearbyRides,
-        timestamp: new Date(),
+        timestamp: this.getCurrentTimestamp(),
       };
 
       this.notifyDashboard(driverId, "dashboard_initial", dashboardData);
@@ -1162,13 +1304,6 @@ class SocketService {
    */
   async sendInitialRiderDashboardData(riderId, latitude, longitude) {
     try {
-      // Import required models and functions
-      const Rider = require("../models/Rider");
-      const Wallet = require("../models/Wallet");
-      const Ride = require("../models/Ride");
-      const User = require("../models/User");
-      const { verifyToken } = require("../utils/jwt");
-
       // Get rider profile and user
       const rider = await Rider.findOne({ user: riderId });
       const user = await User.findById(riderId);
@@ -1299,7 +1434,7 @@ class SocketService {
             longitude: parseFloat(longitude),
           },
         },
-        timestamp: new Date(),
+        timestamp: this.getCurrentTimestamp(),
       };
 
       this.notifyRiderDashboard(
@@ -1318,7 +1453,6 @@ class SocketService {
   async getNearbyDriversForDashboard(driverId, latitude, longitude) {
     // Similar logic to driverController.getNearbyDriversForDriver
     const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
-    const LiveLocation = require("../models/LiveLocation");
 
     const recentLocations = await LiveLocation.find({
       timestamp: { $gte: fiveMinutesAgo },
@@ -1342,7 +1476,6 @@ class SocketService {
    */
   async getNearbyRideRequestsForDashboard(latitude, longitude) {
     const twoMinutesAgo = new Date(Date.now() - 2 * 60 * 1000);
-    const Ride = require("../models/Ride");
 
     const pendingRides = await Ride.find({
       status: "searching",
@@ -1434,9 +1567,7 @@ class SocketService {
       const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
 
       // Import required models
-      const LiveLocation = require("../models/LiveLocation");
-      const Ride = require("../models/Ride");
-
+    
       const recentLocations = await LiveLocation.find({
         timestamp: { $gte: fiveMinutesAgo },
       }).populate({
@@ -1682,7 +1813,7 @@ class SocketService {
       rideStatusRooms.forEach((room) => {
         this.io.to(room).emit("ride_status_change", {
           ...notificationData,
-          timestamp: new Date(),
+          timestamp: this.getCurrentTimestamp(),
         });
       });
 
@@ -1728,7 +1859,7 @@ class SocketService {
       vehicleType: rideData.vehicleType || "sedan",
       expiresAt: expiresAt.toISOString(),
       timeLeft: 30, // seconds
-      timestamp: new Date().toISOString(),
+      timestamp: this.getCurrentTimestampISO(),
     };
 
     this.notifyUser(userId, "ride_request", rideRequestPayload);
@@ -1806,8 +1937,7 @@ class SocketService {
    */
   async getDriverUserId(driverId) {
     try {
-      const Driver = require("../models/Driver");
-
+  
       // First check if this is already a User ID by looking for a driver with this user field
       let driver = await Driver.findOne({ user: driverId }).select("user");
       if (driver) {
@@ -1829,6 +1959,38 @@ class SocketService {
   }
 
   /**
+   * Get Rider ID from User ID
+   * Socket rooms are joined using Rider ID per API contract
+   * @param {string} userId - User ID
+   * @returns {Promise<string|null>} Rider ID or null if not found
+   */
+  async getRiderIdFromUserId(userId) {
+    try {
+      // Normalize userId from object or stringified object
+      let normalizedUserId = null;
+      if (typeof userId === "object" && userId !== null) {
+        normalizedUserId = userId._id?.toString() || userId.id?.toString() || null;
+      } else if (typeof userId === "string") {
+        // Extract first ObjectId-like value from string
+        const match = userId.match(/([a-f0-9]{24})/i);
+        normalizedUserId = match ? match[1] : userId;
+      } else {
+        normalizedUserId = userId;
+      }
+
+      if (!normalizedUserId || !mongoose.Types.ObjectId.isValid(normalizedUserId)) {
+        return null;
+      }
+
+      const rider = await Rider.findOne({ user: normalizedUserId }).select("_id");
+      return rider ? rider._id.toString() : null;
+    } catch (error) {
+      console.error("Error getting rider ID:", error);
+      return null;
+    }
+  }
+
+  /**
    * Notify driver about dashboard data updates
    * @param {string} driverId - Driver ID (will be converted to User ID for socket delivery)
    * @param {Object} updateData - Updated dashboard data
@@ -1842,7 +2004,7 @@ class SocketService {
     const notificationData = {
       updateType,
       data: updateData,
-      timestamp: new Date(),
+      timestamp: this.getCurrentTimestamp(),
     };
 
     // Convert Driver ID to User ID for proper socket room targeting
@@ -1877,7 +2039,7 @@ class SocketService {
     if (this.io) {
       this.io.to(`earnings_${userId}`).emit("earnings_update", {
         ...earningsData,
-        timestamp: new Date(),
+        timestamp: this.getCurrentTimestamp(),
       });
       console.log(
         `Earnings update sent to driver ${driverId} (user: ${userId})`,
@@ -1939,7 +2101,7 @@ class SocketService {
     const userId = await this.getDriverUserId(driverId);
     this.notifyUser(userId, "profile_update", {
       ...updateData,
-      timestamp: new Date(),
+      timestamp: this.getCurrentTimestamp(),
     });
     console.log(
       `Profile update notification sent to driver ${driverId} (user: ${userId})`,
@@ -1971,7 +2133,7 @@ class SocketService {
     const notificationData = {
       updateType,
       data: updateData,
-      timestamp: new Date(),
+      timestamp: this.getCurrentTimestamp(),
     };
 
     // Send to user's personal room
@@ -2025,8 +2187,7 @@ class SocketService {
       if (!this.io) return;
 
       // Get driver details for the update
-      const Driver = require("../models/Driver");
-      const driver = await Driver.findById(driverId).populate(
+        const driver = await Driver.findById(driverId).populate(
         "user",
         "fullName",
       );
@@ -2093,7 +2254,7 @@ class SocketService {
           // Send real-time driver location update to rider
           this.notifyRiderDashboard(riderId, "driver_location_update", {
             driver: driverUpdate,
-            timestamp: new Date(),
+            timestamp: this.getCurrentTimestamp(),
           });
 
           console.log(
@@ -2117,8 +2278,7 @@ class SocketService {
    */
   async notifyRideSubscribersAboutDriverLocation(driverId, driverLocation) {
     try {
-      const Ride = require("../models/Ride");
-
+  
       // Find all active rides for this driver (including in_progress as per spec)
       const activeRides = await Ride.find({
         driver: driverId,
@@ -2140,7 +2300,7 @@ class SocketService {
           longitude: driverLocation.longitude,
           heading: driverLocation.heading || 0,
           speed: driverLocation.speed || 0,
-          timestamp: new Date().toISOString(),
+          timestamp: this.getCurrentTimestampISO(),
         };
 
         // Emit driver_location_update to ride room as per spec
@@ -2178,7 +2338,7 @@ class SocketService {
     this.notifyUser(riderId, "location_update", {
       action,
       location: locationData,
-      timestamp: new Date(),
+      timestamp: this.getCurrentTimestamp(),
     });
   }
 
@@ -2216,7 +2376,7 @@ class SocketService {
         dropoff: rideData.dropoff,
         estimatedDuration: rideData.estimatedDuration,
         message: "Your ride has started. Enjoy your trip!",
-        timestamp: new Date(),
+        timestamp: this.getCurrentTimestamp(),
       };
 
       this.notifyUser(riderId, "ride_started", payload);
@@ -2244,7 +2404,7 @@ class SocketService {
         endTime: rideData.endTime || new Date(),
         paymentMethod: rideData.paymentMethod,
         message: "Thank you for riding with us!",
-        timestamp: new Date(),
+        timestamp: this.getCurrentTimestamp(),
       };
 
       this.notifyUser(riderId, "ride_completed", payload);
@@ -2268,7 +2428,7 @@ class SocketService {
         tier: rewardData.tier || rewardData.currentTier,
         rideId: rewardData.rideId || rewardData.ride,
         message: `You earned ${rewardData.points || rewardData.amount} points!`,
-        timestamp: new Date(),
+        timestamp: this.getCurrentTimestamp(),
       };
 
       // Send to rewards subscribers
@@ -2286,7 +2446,7 @@ class SocketService {
     if (this.io) {
       this.io.to(`ride_history_${riderId}`).emit("ride_history_update", {
         ...historyUpdate,
-        timestamp: new Date(),
+        timestamp: this.getCurrentTimestamp(),
       });
       console.log(`Ride history update sent to rider ${riderId}`);
     }
@@ -2356,8 +2516,7 @@ class SocketService {
       }
 
       // Get driver's last known location
-      const LiveLocation = require("../models/LiveLocation");
-      const recentLocation = await LiveLocation.findOne({
+        const recentLocation = await LiveLocation.findOne({
         driver: driverId,
         timestamp: { $gte: new Date(Date.now() - 10 * 60 * 1000) }, // Last 10 minutes
       }).sort({ timestamp: -1 });
@@ -2388,7 +2547,7 @@ class SocketService {
               latitude: recentLocation.latitude,
               longitude: recentLocation.longitude,
             },
-            timestamp: new Date(),
+            timestamp: this.getCurrentTimestamp(),
           };
 
           this.notifyRiderNearbyDriversUpdate(riderId, [nearbyDriversUpdate]);
@@ -2411,7 +2570,7 @@ class SocketService {
     this.notifyUser(riderId, "location_update", {
       action: "deleted",
       locationId: locationId,
-      timestamp: new Date(),
+      timestamp: this.getCurrentTimestamp(),
     });
   }
 
@@ -2425,7 +2584,7 @@ class SocketService {
     this.notifyUser(riderId, "payment_method_update", {
       action,
       paymentMethod: paymentMethodData,
-      timestamp: new Date(),
+      timestamp: this.getCurrentTimestamp(),
     });
   }
 
@@ -2447,7 +2606,7 @@ class SocketService {
     this.notifyUser(riderId, "payment_method_update", {
       action: "deleted",
       paymentMethodId: paymentMethodId,
-      timestamp: new Date(),
+      timestamp: this.getCurrentTimestamp(),
     });
   }
 
@@ -2460,7 +2619,7 @@ class SocketService {
     if (this.io) {
       this.io.to(`wallet_${userId}`).emit("wallet_update", {
         wallet: walletData,
-        timestamp: new Date(),
+        timestamp: this.getCurrentTimestamp(),
       });
       console.log(`Wallet update sent to user ${userId}`);
     }
@@ -2475,7 +2634,7 @@ class SocketService {
     if (this.io) {
       this.io.to(`wallet_${userId}`).emit("wallet_spending", {
         spending: spendingData,
-        timestamp: new Date(),
+        timestamp: this.getCurrentTimestamp(),
       });
       console.log(`Wallet spending notification sent to user ${userId}`);
     }
@@ -2490,7 +2649,7 @@ class SocketService {
     if (this.io) {
       this.io.to(userId).emit("low_wallet_balance", {
         alert: alertData,
-        timestamp: new Date(),
+        timestamp: this.getCurrentTimestamp(),
       });
       console.log(`Low wallet balance alert sent to user ${userId}`);
     }
@@ -2505,7 +2664,7 @@ class SocketService {
     if (this.io) {
       this.io.to(`wallet_${userId}`).emit("wallet_transaction", {
         transaction: transactionData,
-        timestamp: new Date(),
+        timestamp: this.getCurrentTimestamp(),
       });
       console.log(`Wallet transaction notification sent to user ${userId}`);
     }
@@ -2520,7 +2679,7 @@ class SocketService {
     if (this.io) {
       this.io.to(`rewards_${userId}`).emit("rewards_balance_update", {
         balance: balanceData,
-        timestamp: new Date(),
+        timestamp: this.getCurrentTimestamp(),
       });
       console.log(`Rewards balance update sent to user ${userId}`);
     }
@@ -2535,7 +2694,7 @@ class SocketService {
     if (this.io) {
       this.io.to(`rewards_${userId}`).emit("rewards_tier_upgrade", {
         tier: tierData,
-        timestamp: new Date(),
+        timestamp: this.getCurrentTimestamp(),
       });
       console.log(`Rewards tier upgrade notification sent to user ${userId}`);
     }
@@ -2550,7 +2709,7 @@ class SocketService {
     if (this.io) {
       this.io.to(`rewards_${userId}`).emit("rewards_expiring_soon", {
         expiring: expiringData,
-        timestamp: new Date(),
+        timestamp: this.getCurrentTimestamp(),
       });
       console.log(`Rewards expiring soon alert sent to user ${userId}`);
     }
@@ -2565,7 +2724,7 @@ class SocketService {
     if (this.io) {
       this.io.to(`rewards_${userId}`).emit("rewards_new_available", {
         rewards: rewardsData,
-        timestamp: new Date(),
+        timestamp: this.getCurrentTimestamp(),
       });
       console.log(`New rewards available notification sent to user ${userId}`);
     }
@@ -2580,7 +2739,7 @@ class SocketService {
     if (this.io) {
       this.io.to(`rewards_${userId}`).emit("rewards_redemption_success", {
         redemption: redemptionData,
-        timestamp: new Date(),
+        timestamp: this.getCurrentTimestamp(),
       });
       console.log(
         `Rewards redemption success notification sent to user ${userId}`,
@@ -2597,7 +2756,7 @@ class SocketService {
     if (this.io) {
       this.io.to(`rewards_${userId}`).emit("referral_info_update", {
         referral: referralData,
-        timestamp: new Date(),
+        timestamp: this.getCurrentTimestamp(),
       });
       console.log(`Referral info update notification sent to user ${userId}`);
     }
@@ -2612,7 +2771,7 @@ class SocketService {
     if (this.io) {
       this.io.to(`rewards_${userId}`).emit("referral_points_earned", {
         referralPoints: referralPointsData,
-        timestamp: new Date(),
+        timestamp: this.getCurrentTimestamp(),
       });
       console.log(`Referral points earned notification sent to user ${userId}`);
     }
@@ -2627,7 +2786,7 @@ class SocketService {
     if (this.io) {
       this.io.to(`rewards_${userId}`).emit("referral_code_used", {
         referralUsed: referralUsedData,
-        timestamp: new Date(),
+        timestamp: this.getCurrentTimestamp(),
       });
       console.log(`Referral code used notification sent to user ${userId}`);
     }
@@ -2838,9 +2997,7 @@ class SocketService {
    */
   async sendActiveRideUpdate(rideId) {
     try {
-      const Ride = require("../models/Ride");
-      const LiveLocation = require("../models/LiveLocation");
-
+    
       // Get the ride with current data
       const ride = await Ride.findById(rideId).populate({
         path: "driver",
@@ -3087,9 +3244,7 @@ class SocketService {
    */
   async sendRideStatusUpdate(rideId, userId) {
     try {
-      const Ride = require("../models/Ride");
-      const LiveLocation = require("../models/LiveLocation");
-
+    
       // Get the ride with current data
       const ride = await Ride.findById(rideId).populate({
         path: "driver",
@@ -3281,7 +3436,7 @@ class SocketService {
       // Emit to all rewards rooms (all subscribed riders)
       this.io.to(/^rewards_/).emit("new_reward_added", {
         reward: rewardData,
-        timestamp: new Date(),
+        timestamp: this.getCurrentTimestamp(),
       });
       console.log(`New reward notification sent to all riders`);
     }
@@ -3296,7 +3451,7 @@ class SocketService {
       // Emit to all rewards rooms (all subscribed riders)
       this.io.to(/^rewards_/).emit("reward_updated", {
         reward: rewardData,
-        timestamp: new Date(),
+        timestamp: this.getCurrentTimestamp(),
       });
       console.log(`Reward update notification sent to all riders`);
     }
@@ -3311,7 +3466,7 @@ class SocketService {
       // Emit to all rewards rooms (all subscribed riders)
       this.io.to(/^rewards_/).emit("reward_removed", {
         rewardId: rewardId,
-        timestamp: new Date(),
+        timestamp: this.getCurrentTimestamp(),
       });
       console.log(`Reward removal notification sent to all riders`);
     }
@@ -3326,7 +3481,7 @@ class SocketService {
     if (this.io) {
       this.io.to(`rewards_${riderId}`).emit("points_earned", {
         points: pointsData,
-        timestamp: new Date(),
+        timestamp: this.getCurrentTimestamp(),
       });
       console.log(`Points earned notification sent to rider ${riderId}`);
     }
@@ -3341,7 +3496,7 @@ class SocketService {
     if (this.io) {
       this.io.to(`rewards_${riderId}`).emit("reward_redemption_failed", {
         failure: failureData,
-        timestamp: new Date(),
+        timestamp: this.getCurrentTimestamp(),
       });
       console.log(`Redemption failure notification sent to rider ${riderId}`);
     }
@@ -3355,7 +3510,7 @@ class SocketService {
   notifySettingsUpdated(userId, settingsData) {
     this.notifyUser(userId, "settings_update", {
       settings: settingsData,
-      timestamp: new Date(),
+      timestamp: this.getCurrentTimestamp(),
     });
   }
 
@@ -3373,7 +3528,7 @@ class SocketService {
       this.io.to("admin_analytics").emit("analytics_update", {
         updateType,
         data,
-        timestamp: new Date(),
+        timestamp: this.getCurrentTimestamp(),
       });
       console.log(`📊 [ANALYTICS UPDATE] Type: ${updateType}`);
     }
@@ -3412,13 +3567,13 @@ class SocketService {
       this.io.to("admin_analytics").emit("analytics_realtime_event", {
         eventType,
         data: eventData,
-        timestamp: new Date(),
+        timestamp: this.getCurrentTimestamp(),
       });
 
       // Also trigger a full analytics refresh for dashboard
       this.io.to("admin_analytics").emit("analytics_refresh_needed", {
         reason: eventType,
-        timestamp: new Date(),
+        timestamp: this.getCurrentTimestamp(),
       });
 
       console.log(`📊 [ANALYTICS EVENT] ${eventType}`);

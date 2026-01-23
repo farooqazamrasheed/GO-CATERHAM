@@ -36,7 +36,7 @@ async function clearOngoingRides() {
 
     // Find all ongoing rides (not completed or cancelled)
     log('\n▶ Finding ongoing rides...', 'yellow');
-    const ongoingStatuses = ['requested', 'searching', 'assigned', 'accepted', 'in_progress', 'scheduled'];
+    const ongoingStatuses = ['pending', 'searching', 'assigned', 'accepted', 'in_progress', 'scheduled'];
     
     const ongoingRides = await Ride.find({
       status: { $in: ongoingStatuses }
@@ -126,7 +126,7 @@ async function clearRidesForRider(riderEmail) {
     log(`✓ Found rider: ${user.fullName}`, 'green');
 
     // Find and cancel ongoing rides
-    const ongoingStatuses = ['requested', 'searching', 'assigned', 'accepted', 'in_progress', 'scheduled'];
+    const ongoingStatuses = ['pending', 'searching', 'assigned', 'accepted', 'in_progress', 'scheduled'];
     
     const result = await Ride.updateMany(
       { 

@@ -9,6 +9,8 @@ const rideRequestManager = require("../utils/rideRequestManager");
 const socketService = require("../services/socketService");
 const notificationService = require("../services/notificationService");
 const driverPayoutController = require("../controllers/driverPayoutController");
+const { transformRide, transformRides } = require("../utils/transformRide");
+const { getRideId, getUserId, getDriverId, getRiderId } = require("../utils/flexibleParams");
 const crypto = require("crypto");
 
 // Surrey boundary coordinates (approximate polygon for Surrey, UK)
@@ -253,7 +255,7 @@ function formatRideResponse(ride) {
 function mapStatusForFrontend(backendStatus) {
   const statusMap = {
     searching: "pending",
-    requested: "pending",
+    pending: "pending",
     scheduled: "pending",
     accepted: "accepted",
     in_progress: "in_progress",
@@ -276,7 +278,7 @@ function formatRideForFrontend(
 
   // Base ride object with frontend-expected field names
   const formattedRide = {
-    rideId: rideObj._id?.toString() || rideObj.id?.toString(),
+    id: rideObj._id?.toString() || rideObj.id?.toString(),
     riderId: rideObj.rider?._id?.toString() || rideObj.rider?.toString(),
     driverId: rideObj.driver?._id?.toString() || rideObj.driver?.toString(),
     status: mapStatusForFrontend(rideObj.status),
@@ -731,7 +733,7 @@ exports.bookRide = async (req, res) => {
       status: scheduledTime
         ? "scheduled"
         : targetDriverId
-          ? "requested"
+          ? "pending"
           : "searching",
       scheduledTime: scheduledDate,
       specialInstructions,
@@ -761,7 +763,7 @@ exports.bookRide = async (req, res) => {
 
     // Notify analytics subscribers about new ride (real-time dashboard update)
     socketService.notifyRealtimeAnalyticsEvent("ride_created", {
-      rideId: ride._id,
+      id: ride._id,
       riderId: ride.rider,
       pickup: ride.pickup,
       dropoff: ride.dropoff,
@@ -835,7 +837,7 @@ exports.bookRide = async (req, res) => {
       // Send ride request ONLY to this specific driver
       socketService.notifyRideRequest(targetDriverId, {
         ...ride.toObject(),
-        rideId: ride._id,
+        id: ride._id,
         riderId: ride.rider._id,
         riderName: ride.rider?.fullName || "Unknown Rider",
         pickup: ride.pickup,
@@ -868,7 +870,7 @@ exports.bookRide = async (req, res) => {
       rideRequestManager.startRideRequest(ride._id, [targetDriverId]);
 
       const response = {
-        rideId: ride._id,
+        id: ride._id,
         status: ride.status,
         targetDriver: {
           id: targetDriver._id,
@@ -944,7 +946,7 @@ exports.bookRide = async (req, res) => {
             driverInfo.driver._id.toString(),
             [
               {
-                rideId: ride._id,
+                id: ride._id,
                 pickupLocation: ride.pickup,
                 dropoffLocation: ride.dropoff,
                 estimatedFare: ride.estimatedFare,
@@ -1282,7 +1284,7 @@ async function assignDriverToRide(rideId, fareEstimate) {
 // Accept ride request
 exports.acceptRide = async (req, res) => {
   try {
-    const rideId = req.params.rideId;
+    const rideId = getRideId(req);
     const driverId = req.user.id;
 
     // Use ride request manager to handle acceptance
@@ -1352,7 +1354,7 @@ exports.acceptRide = async (req, res) => {
 
     // 2. Notify driver about successful acceptance and ride details
     socketService.notifyUser(driverId, "ride_accepted_success", {
-      rideId: ride._id,
+      id: ride._id,
       status: ride.status,
       rider: {
         name: ride.rider.fullName || "Unknown Rider",
@@ -1373,7 +1375,7 @@ exports.acceptRide = async (req, res) => {
       {
         status: "busy",
         currentRide: {
-          rideId: ride._id,
+          id: ride._id,
           riderName: ride.rider.fullName || "Unknown Rider",
           pickup: ride.pickup,
           dropoff: ride.dropoff,
@@ -1389,7 +1391,7 @@ exports.acceptRide = async (req, res) => {
       ride.rider._id.toString(),
       {
         currentRide: {
-          rideId: ride._id,
+          id: ride._id,
           status: "going-to-pickup",
           driver: {
             id: ride.driver._id,
@@ -1423,7 +1425,7 @@ exports.acceptRide = async (req, res) => {
         ride.rider._id.toString(),
         "driver_location_update",
         {
-          rideId: ride._id,
+          id: ride._id,
           driverId: ride.driver._id,
           location: driverLocation,
           distanceToPickup: driverDistanceToPickup,
@@ -1489,7 +1491,7 @@ exports.acceptRide = async (req, res) => {
         ride.dropoff?.address || "destination"
       }. Please proceed to pickup.`,
       type: "ride_accepted",
-      rideId: ride._id,
+      id: ride._id,
       timestamp: new Date(),
     });
 
@@ -1551,7 +1553,7 @@ exports.acceptRide = async (req, res) => {
 // Reject ride request
 exports.rejectRide = async (req, res) => {
   try {
-    const rideId = req.params.rideId;
+    const rideId = getRideId(req);
     const driverId = req.user.id;
     const { reason } = req.body;
 
@@ -1575,7 +1577,7 @@ exports.rejectRide = async (req, res) => {
       ride.rider._id.toString(),
       "ride_driver_rejected",
       {
-        rideId: ride._id,
+        id: ride._id,
         message:
           "A driver has rejected your ride request. We're finding another driver for you.",
         reason: reason || "Driver unavailable",
@@ -1616,7 +1618,7 @@ exports.rejectRide = async (req, res) => {
 // Mark driver arrived at pickup location
 exports.markDriverArrived = async (req, res) => {
   try {
-    const ride = await Ride.findById(req.params.rideId).populate("driver");
+    const ride = await Ride.findById(getRideId(req)).populate("driver");
     if (!ride) {
       return sendError(res, "Ride not found", 404);
     }
@@ -1641,7 +1643,7 @@ exports.markDriverArrived = async (req, res) => {
 
     // Send notification to rider about driver arrival
     socketService.notifyUser(ride.rider.toString(), "driver_arrived", {
-      rideId: ride._id,
+      id: ride._id,
       driverId: ride.driver._id,
       message: "Your driver has arrived at the pickup location!",
       timestamp: new Date(),
@@ -1673,7 +1675,7 @@ exports.markDriverArrived = async (req, res) => {
 // Start ride
 exports.startRide = async (req, res) => {
   try {
-    const ride = await Ride.findById(req.params.rideId).populate("driver");
+    const ride = await Ride.findById(getRideId(req)).populate("driver");
     if (!ride) {
       return sendError(res, "Ride not found", 404);
     }
@@ -1725,7 +1727,7 @@ exports.completeRide = async (req, res) => {
 
     const { actualDistance, actualDuration } = req.body || {};
 
-    let ride = await Ride.findById(req.params.rideId).populate({
+    let ride = await Ride.findById(getRideId(req)).populate({
       path: "driver",
       populate: { path: "user", select: "fullName" },
     });
@@ -1797,7 +1799,7 @@ exports.completeRide = async (req, res) => {
 
     // Notify analytics subscribers about ride completion (real-time dashboard update)
     socketService.notifyRealtimeAnalyticsEvent("ride_completed", {
-      rideId: ride._id,
+      id: ride._id,
       driverId: ride.driver._id,
       riderId: ride.rider,
       fare: finalFare,
@@ -1827,7 +1829,7 @@ exports.completeRide = async (req, res) => {
         socketService.notifyWalletSpending(ride.rider.toString(), {
           amount: finalFare,
           type: "ride_payment",
-          rideId: ride._id,
+          id: ride._id,
           description: "Ride payment",
           newBalance: wallet.balance,
         });
@@ -1918,7 +1920,7 @@ exports.completeRide = async (req, res) => {
 
     // 1. Notify rider about ride completion with detailed breakdown
     socketService.notifyUser(ride.rider.toString(), "ride_completed", {
-      rideId: ride._id,
+      id: ride._id,
       status: "completed",
       finalFare: finalFare,
       paymentStatus: paymentStatus,
@@ -1943,7 +1945,7 @@ exports.completeRide = async (req, res) => {
     // 2. Notify rider about payment processing
     if (paymentStatus === "paid") {
       socketService.notifyUser(ride.rider.toString(), "payment_processed", {
-        rideId: ride._id,
+        id: ride._id,
         amount: finalFare,
         method: ride.paymentMethod,
         status: "completed",
@@ -1957,7 +1959,7 @@ exports.completeRide = async (req, res) => {
       ride.driver._id.toString(),
       "ride_completed_success",
       {
-        rideId: ride._id,
+        id: ride._id,
         status: "completed",
         earnings: {
           baseEarnings: driverEarnings,
@@ -1985,7 +1987,7 @@ exports.completeRide = async (req, res) => {
       {
         status: "available", // Driver is now available
         lastRide: {
-          rideId: ride._id,
+          id: ride._id,
           earnings: driverEarnings + ride.bonuses + ride.tips,
           completedAt: ride.endTime,
           rating: null, // Will be updated when rider rates
@@ -2000,7 +2002,7 @@ exports.completeRide = async (req, res) => {
 
     // 5. Send real-time earnings update notification to driver
     socketService.notifyDriverEarningsUpdate(ride.driver._id.toString(), {
-      rideId: ride._id,
+      id: ride._id,
       earnings: {
         baseEarnings: driverEarnings,
         bonuses: ride.bonuses,
@@ -2025,7 +2027,7 @@ exports.completeRide = async (req, res) => {
       ride.rider.toString(),
       {
         lastRide: {
-          rideId: ride._id,
+          id: ride._id,
           status: "completed",
           fare: finalFare,
           completedAt: ride.endTime,
@@ -2044,7 +2046,7 @@ exports.completeRide = async (req, res) => {
     socketService.notifyRideHistoryUpdate(ride.rider.toString(), {
       action: "ride_completed",
       newRide: {
-        rideId: ride._id,
+        id: ride._id,
         dateTime: ride.endTime,
         pickupAddress: ride.pickup?.address || "N/A",
         dropoffAddress: ride.dropoff?.address || "N/A",
@@ -2073,7 +2075,7 @@ exports.completeRide = async (req, res) => {
 
     // 6. Notify admins about ride completion with detailed stats
     socketService.notifyUser("admin", "admin_ride_completed", {
-      rideId: ride._id,
+      id: ride._id,
       riderId: ride.rider,
       driverId: ride.driver._id,
       status: "completed",
@@ -2128,7 +2130,7 @@ exports.completeRide = async (req, res) => {
 // Get ride status (real-time tracking)
 exports.getRideStatus = async (req, res) => {
   try {
-    const rideId = req.params.rideId;
+    const rideId = getRideId(req);
 
     const ride = await Ride.findById(rideId)
       .populate({
@@ -2270,7 +2272,7 @@ exports.getRideStatus = async (req, res) => {
     }
 
     const response = {
-      rideId: ride._id,
+      id: ride._id,
       status: ride.status,
       createdAt: ride.createdAt,
       scheduledTime: ride.scheduledTime,
@@ -2360,7 +2362,7 @@ exports.getRideStatus = async (req, res) => {
 
       // Send initial real-time update notification
       socketService.notifyUser(req.user.id, "ride_status_initial", {
-        rideId: ride._id,
+        id: ride._id,
         message: "Real-time updates enabled for this ride",
         updateInterval: 10000,
       });
@@ -2378,7 +2380,7 @@ exports.getRideStatus = async (req, res) => {
 // Get driver location for a specific ride (Rider use - to track driver)
 exports.getDriverLocation = async (req, res) => {
   try {
-    const rideId = req.params.rideId;
+    const rideId = getRideId(req);
     const riderId = req.user.id;
 
     // Find the ride and verify rider owns it
@@ -2469,7 +2471,7 @@ exports.getDriverLocation = async (req, res) => {
     }
 
     const response = {
-      rideId: ride._id,
+      id: ride._id,
       rideStatus: ride.status,
       driver: {
         id: ride.driver._id,
@@ -2506,13 +2508,30 @@ exports.getDriverLocation = async (req, res) => {
 // Get active ride for rider
 exports.getActiveRide = async (req, res) => {
   try {
-    const riderId = req.user.id;
+    const userId = req.user.id;
 
-    // Find active ride for this rider
+    // CRITICAL FIX: Check if user is a driver first
+    // Ride.driver stores Driver._id, not User._id
+    const driverDoc = await Driver.findOne({ user: userId });
+    
+    // Build query conditions
+    const conditions = { rider: userId }; // Always check rider
+    
+    if (driverDoc) {
+      // If user is also a driver, check BOTH rider and driver fields
+      conditions.$or = [
+        { rider: userId },           // For rider role
+        { driver: driverDoc._id }    // For driver role (using Driver._id)
+      ];
+      delete conditions.rider; // Remove duplicate rider check
+    }
+
+    // Find active ride for BOTH rider AND driver
     const activeRide = await Ride.findOne({
-      rider: riderId,
+      ...conditions,
       status: {
         $in: [
+          "pending",
           "searching",
           "assigned",
           "accepted",
@@ -2538,12 +2557,12 @@ exports.getActiveRide = async (req, res) => {
 
     if (!activeRide) {
       // Unsubscribe from any previous active ride updates
-      socketService.unsubscribeFromActiveRide(riderId);
+      socketService.unsubscribeFromActiveRide(userId);
       return sendSuccess(res, null, "No active ride found", 200);
     }
 
     // Subscribe to real-time updates for this active ride
-    socketService.subscribeToActiveRide(riderId, activeRide._id);
+    socketService.subscribeToActiveRide(userId, activeRide._id);
 
     // Get driver's current location if ride is active
     let driverLocation = null;
@@ -2606,7 +2625,7 @@ exports.getActiveRide = async (req, res) => {
     }
 
     const response = {
-      rideId: activeRide._id,
+      id: activeRide._id.toString(), // API Contract: use 'id' not 'rideId'
       status: activeRide.status,
       createdAt: activeRide.createdAt,
       scheduledTime: activeRide.scheduledTime,
@@ -2688,7 +2707,7 @@ exports.cancelRide = async (req, res) => {
     const { cancellationReason } = req.body;
     const cancelledAt = new Date();
 
-    const ride = await Ride.findById(req.params.rideId);
+    const ride = await Ride.findById(getRideId(req));
     if (!ride) {
       return sendError(res, "Ride not found", 404);
     }
@@ -2755,7 +2774,7 @@ exports.cancelRide = async (req, res) => {
 
     // Notify analytics subscribers about ride cancellation (real-time dashboard update)
     socketService.notifyRealtimeAnalyticsEvent("ride_cancelled", {
-      rideId: ride._id,
+      id: ride._id,
       driverId: ride.driver,
       riderId: ride.rider,
       cancelledBy: isRider ? "rider" : "driver",
@@ -2783,7 +2802,7 @@ exports.cancelRide = async (req, res) => {
       socketService.notifyDriverDashboardUpdate(
         ride.driver.toString(),
         {
-          cancelledRideId: ride._id,
+          cancelledid: ride._id,
           status: "available", // Driver becomes available again
           message: "Ride cancelled - you are now available for new rides",
         },
@@ -2798,7 +2817,7 @@ exports.cancelRide = async (req, res) => {
     socketService.notifyRideHistoryUpdate(ride.rider.toString(), {
       action: "ride_cancelled",
       cancelledRide: {
-        rideId: ride._id,
+        id: ride._id,
         dateTime: ride.createdAt,
         pickupAddress: ride.pickup?.address || "N/A",
         dropoffAddress: ride.dropoff?.address || "N/A",
@@ -2859,7 +2878,7 @@ function calculateCancellationFee(ride, cancelledAt) {
 exports.addTip = async (req, res) => {
   try {
     const { tipAmount } = req.body;
-    const rideId = req.params.rideId;
+    const rideId = getRideId(req);
     const riderId = req.user.id;
 
     // Validate tip amount
@@ -2950,7 +2969,7 @@ exports.addTip = async (req, res) => {
 
     // Send notification to driver
     socketService.notifyUser(ride.driver.toString(), "tip_received", {
-      rideId: ride._id,
+      id: ride._id,
       tipAmount,
       riderName: req.user.fullName,
       message: `You received a £${tipAmount} tip from ${req.user.fullName}!`,
@@ -2970,7 +2989,7 @@ exports.addTip = async (req, res) => {
         lastTip: {
           amount: tipAmount,
           riderName: req.user.fullName,
-          rideId: ride._id,
+          id: ride._id,
           timestamp: new Date(),
         },
       },
@@ -2979,7 +2998,7 @@ exports.addTip = async (req, res) => {
 
     // 2. Send real-time earnings update notification to driver for tip
     socketService.notifyDriverEarningsUpdate(ride.driver.toString(), {
-      rideId: ride._id,
+      id: ride._id,
       earnings: {
         tipReceived: tipAmount,
         totalEarnings: ride.driverEarnings,
@@ -3011,14 +3030,14 @@ exports.addTip = async (req, res) => {
       title: "Tip Received! 💰",
       message: `You received a £${tipAmount} tip from ${req.user.fullName}`,
       type: "tip_received",
-      rideId: ride._id,
+      id: ride._id,
       amount: tipAmount,
       timestamp: new Date(),
     });
 
     // 4. Notify admins about tip activity
     socketService.notifyUser("admin", "admin_tip_received", {
-      rideId: ride._id,
+      id: ride._id,
       riderId: riderId,
       driverId: ride.driver._id,
       tipAmount,
@@ -3031,7 +3050,7 @@ exports.addTip = async (req, res) => {
     sendSuccess(
       res,
       {
-        rideId: ride._id,
+        id: ride._id,
         tipAmount,
         driverEarnings: ride.driverEarnings,
         walletBalance: wallet.balance,
@@ -3051,7 +3070,7 @@ exports.rateDriver = async (req, res) => {
     // Accept rating from either body or query parameters for flexibility
     const { rating, comment } = req.body;
 
-    const rideId = req.params.rideId;
+    const rideId = getRideId(req);
     const riderId = req.user.id;
 
     // Validate rating
@@ -3100,7 +3119,7 @@ exports.rateDriver = async (req, res) => {
 
     // Send notification to driver
     socketService.notifyUser(ride.driver._id.toString(), "rider_rating", {
-      rideId: ride._id,
+      id: ride._id,
       rating,
       comment,
       riderName: req.user.fullName,
@@ -3117,7 +3136,7 @@ exports.rateDriver = async (req, res) => {
           newRating: rating,
           comment: comment || null,
           riderName: req.user.fullName,
-          rideId: ride._id,
+          id: ride._id,
           updatedAverageRating: updatedDriver.rating,
         },
         stats: {
@@ -3133,7 +3152,7 @@ exports.rateDriver = async (req, res) => {
 
     // 2. Admin Notifications: Alert admins about new ratings for monitoring
     socketService.notifyUser("admin", "admin_rating_received", {
-      rideId: ride._id,
+      id: ride._id,
       driverId: ride.driver._id,
       riderId: req.user.id,
       rating,
@@ -3149,7 +3168,7 @@ exports.rateDriver = async (req, res) => {
 
     // 3. Rider Confirmation: Confirm to the rider that the rating was submitted successfully
     socketService.notifyUser(req.user.id, "rating_submitted", {
-      rideId: ride._id,
+      id: ride._id,
       rating,
       comment,
       driverName: ride.driver.user?.fullName || "Unknown Driver",
@@ -3173,7 +3192,7 @@ exports.rateDriver = async (req, res) => {
     sendSuccess(
       res,
       {
-        rideId: ride._id,
+        id: ride._id,
         rating,
         comment,
       },
@@ -3190,7 +3209,7 @@ exports.rateDriver = async (req, res) => {
 exports.rateRider = async (req, res) => {
   try {
     const { rating, comment } = req.body;
-    const rideId = req.params.rideId;
+    const rideId = getRideId(req);
     const driverId = req.user.id;
 
     // Validate rating
@@ -3235,7 +3254,7 @@ exports.rateRider = async (req, res) => {
 
     // Send notification to rider
     socketService.notifyUser(ride.rider.toString(), "driver_rating", {
-      rideId: ride._id,
+      id: ride._id,
       rating,
       comment,
       driverName: req.user.fullName,
@@ -3247,7 +3266,7 @@ exports.rateRider = async (req, res) => {
     sendSuccess(
       res,
       {
-        rideId: ride._id,
+        id: ride._id,
         rating,
         comment,
       },

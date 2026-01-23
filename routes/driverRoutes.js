@@ -209,6 +209,18 @@ router.put(
   driverController.reUploadDocument
 );
 
+// Driver ride actions (compatibility aliases)
+router.post(
+  "/rides/:id/complete",
+  checkPermission("complete_ride"),
+  rideController.completeRide
+);
+router.post(
+  "/rides/:rideId/complete",
+  checkPermission("complete_ride"),
+  rideController.completeRide
+); // Alias
+
 // Driver management - for admins with permissions
 router.get(
   "/:driverId",
