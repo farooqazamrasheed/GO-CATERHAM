@@ -28,9 +28,20 @@ app.use(cors());
 // Special handling for Stripe webhooks (needs raw body)
 app.use("/api/v1/stripe/webhook", express.raw({ type: "application/json" }));
 
-app.use(express.json({ limit: "10mb" }));
-app.use(express.urlencoded({ extended: true, limit: "10mb" }));
+app.use(express.json({ limit: "50mb" }));
+app.use(express.urlencoded({ extended: true, limit: "50mb" }));
 app.use(morgan("dev"));
+
+// Log all incoming requests for debugging
+app.use((req, res, next) => {
+  console.log(`\n📨 [${new Date().toISOString()}] ${req.method} ${req.originalUrl}`);
+  console.log(`   Headers:`, {
+    'content-type': req.headers['content-type'],
+    'content-length': req.headers['content-length'],
+    'authorization': req.headers['authorization'] ? 'Bearer ***' : 'None'
+  });
+  next();
+});
 
 // Attach raw body to request for Stripe webhooks
 app.use((req, res, next) => {

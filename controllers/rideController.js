@@ -847,7 +847,7 @@ exports.bookRide = async (req, res) => {
         eta: driverEta,
         vehicleType: ride.vehicleType,
         estimatedDistance: ride.estimatedDistance,
-        expiresAt: new Date(Date.now() + 60000), // 1 minute expiry as per spec
+        expiresAt: new Date(Date.now() + 30000), // 30 seconds expiry
       });
 
       console.log(
@@ -883,7 +883,7 @@ exports.bookRide = async (req, res) => {
           eta: driverEta,
         },
         message: `Ride request sent to ${targetDriver.user?.fullName || "selected driver"}. Waiting for response...`,
-        expiresAt: new Date(Date.now() + 60000),
+        expiresAt: new Date(Date.now() + 30000), // 30 seconds expiry
       };
 
       if (fareEstimate) {
@@ -953,8 +953,8 @@ exports.bookRide = async (req, res) => {
                 vehicleType: ride.vehicleType,
                 distance: driverInfo.distance,
                 estimatedTimeToPickup: driverInfo.eta,
-                expiresAt: new Date(Date.now() + 15 * 1000),
-                timeLeft: 15,
+                expiresAt: new Date(Date.now() + 30 * 1000), // 30 seconds expiry
+                timeLeft: 30,
                 createdAt: ride.createdAt,
               },
             ],
