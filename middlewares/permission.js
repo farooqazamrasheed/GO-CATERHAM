@@ -11,8 +11,14 @@ const { sendError } = require("../utils/responseHelper");
 module.exports = function checkPermission(...requiredPermissions) {
   return async (req, res, next) => {
     try {
+      console.log("\n🔑 [Permission Check]");
+      console.log("   Required Permissions:", requiredPermissions);
+      console.log("   User Present:", !!req.user);
+      console.log("   User Role:", req.user?.role);
+      
       // Must be authenticated first
       if (!req.user || !req.user.id) {
+        console.log("   ❌ No user in request");
         return sendError(res, "Authorization token missing", 401);
       }
 
@@ -28,11 +34,13 @@ module.exports = function checkPermission(...requiredPermissions) {
 
         // Superadmin has all permissions - bypass checks
         if (admin.adminType === "superadmin") {
+          console.log("   ✅ Superadmin - bypassing permission check");
           return next();
         }
 
         // Admin type has most permissions by default (except creating other admins/superadmins)
         if (admin.adminType === "admin") {
+          console.log("   Admin type detected");
           // Admin can do everything except superadmin-only actions
           const superadminOnlyPermissions = [
             "create_superadmin",
@@ -129,6 +137,7 @@ module.exports = function checkPermission(...requiredPermissions) {
 
       // For driver and rider, use role-based access (backward compatibility)
       // This can be extended later with specific permissions if needed
+      console.log("   ✅ Driver/Rider - permission granted");
       return next();
     } catch (err) {
       console.error("Permission middleware error:", err);

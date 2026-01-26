@@ -1199,9 +1199,9 @@ async function getNearbyRideRequests(driverLat, driverLon) {
         // Calculate ETA to pickup (assuming average speed of 25 km/h in city)
         const etaToPickup = calculateETA(distance, 25); // 25 km/h average city speed
 
-        // Calculate expiry time (15 seconds from now)
-        const expiresAt = new Date(Date.now() + 15 * 1000);
-        const timeLeft = 15; // seconds
+        // Calculate expiry time (30 seconds from now)
+        const expiresAt = new Date(Date.now() + 30 * 1000);
+        const timeLeft = 30; // seconds
 
         // Get rider information
         const rider = ride.rider;
@@ -1933,7 +1933,9 @@ exports.reUploadDocument = async (req, res) => {
     }
 
     // Update document with new file
-    document.url = req.file.path;
+    // ✅ FIX: Use consistent URL format (relative path, not absolute)
+    const fileUrl = `/uploads/documents/${req.file.filename}`;
+    document.url = fileUrl;
     document.uploadedAt = new Date();
     document.lastUploadedAt = new Date();
     document.currentVersion = (document.currentVersion || 0) + 1;
@@ -1947,6 +1949,10 @@ exports.reUploadDocument = async (req, res) => {
     document.verifiedBy = undefined;
 
     await driver.save();
+
+    console.log("   ✅ Document reuploaded successfully");
+    console.log("   New URL:", fileUrl);
+    console.log("   Version:", document.currentVersion);
 
     // Send real-time notification to admins about re-upload
     const socketService = require("../services/socketService");
@@ -1974,7 +1980,8 @@ exports.reUploadDocument = async (req, res) => {
       200
     );
   } catch (err) {
-    console.error("Re-upload document error:", err);
-    sendError(res, "Failed to re-upload document", 500);
+    console.error("❌ Re-upload document error:", err);
+    console.error("   Error stack:", err.stack);
+    sendError(res, "Failed to re-upload document. Please try again.", 500);
   }
 };

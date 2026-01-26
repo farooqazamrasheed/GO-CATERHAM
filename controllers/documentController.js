@@ -11,17 +11,24 @@ const uploadDocuments = documentUpload.fields(documentFields);
 // Validation middleware for document upload
 const validateDocumentUpload = async (req, res, next) => {
   try {
+    console.log("\n🔍 [Document Upload Validation]");
+    console.log("   Driver ID:", req.params.driverId);
+    console.log("   User ID:", req.user?.id);
+    console.log("   User Role:", req.user?.role);
+    
     const driverId = req.params.driverId;
     const userId = req.user.id;
 
     // Validate driverId format
     if (!driverId || !/^[0-9a-fA-F]{24}$/.test(driverId)) {
+      console.log("   ❌ Invalid driver ID format");
       return sendError(res, "Invalid driver ID format", 400);
     }
 
     // Find driver profile
     const driver = await Driver.findById(driverId);
     if (!driver) {
+      console.log("   ❌ Driver not found");
       return sendError(res, "Driver not found", 404);
     }
 
@@ -29,7 +36,11 @@ const validateDocumentUpload = async (req, res, next) => {
     const isOwner = driver.user.toString() === userId;
     const isAdmin = req.user.role === "admin" || req.user.role === "superadmin";
 
+    console.log("   Is Owner:", isOwner);
+    console.log("   Is Admin:", isAdmin);
+
     if (!isOwner && !isAdmin) {
+      console.log("   ❌ Permission denied");
       return sendError(
         res,
         "You can only upload documents for your own account",
@@ -37,6 +48,8 @@ const validateDocumentUpload = async (req, res, next) => {
       );
     }
 
+    console.log("   ✅ Validation passed");
+    
     // Attach driver to req for later use
     req.driver = driver;
     req.isOwner = isOwner;
@@ -44,7 +57,7 @@ const validateDocumentUpload = async (req, res, next) => {
 
     next();
   } catch (error) {
-    console.error("Document upload validation error:", error);
+    console.error("❌ Document upload validation error:", error);
     return sendError(res, "Server error during validation", 500);
   }
 };
@@ -55,6 +68,16 @@ exports.uploadDriverDocuments = [
   uploadDocuments,
   async (req, res) => {
     try {
+      console.log("\n📤 [Document Upload Processing]");
+      console.log("   Files received:", Object.keys(req.files || {}).length);
+      console.log("   File fields:", Object.keys(req.files || {}).join(", "));
+      
+      // Validate that files were uploaded
+      if (!req.files || Object.keys(req.files).length === 0) {
+        console.log("   ❌ No files received in request");
+        return sendError(res, "No files uploaded. Please select documents to upload.", 400);
+      }
+      
       const driver = req.driver;
 
       const uploadedDocuments = [];
@@ -74,6 +97,13 @@ exports.uploadDriverDocuments = [
         if (req.files && req.files[field] && req.files[field][0]) {
           const file = req.files[field][0];
           const fileUrl = `/uploads/documents/${file.filename}`;
+          
+          console.log(`   Processing ${field}:`, {
+            originalName: file.originalname,
+            filename: file.filename,
+            size: file.size,
+            mimetype: file.mimetype
+          });
 
           // Delete old file if exists
           if (
@@ -125,7 +155,17 @@ exports.uploadDriverDocuments = [
         driver.status = "offline";
       }
 
+      // Check if any documents were actually uploaded
+      if (uploadedDocuments.length === 0) {
+        console.log("   ⚠️ No valid documents found in request");
+        return sendError(res, "No valid documents were uploaded. Please check file types and sizes.", 400);
+      }
+
       await driver.save();
+
+      console.log("   ✅ Documents saved successfully");
+      console.log("   Uploaded count:", uploadedDocuments.length);
+      console.log("   Document types:", uploadedDocuments.map(d => d.type).join(", "));
 
       sendSuccess(
         res,
@@ -139,20 +179,31 @@ exports.uploadDriverDocuments = [
         200
       );
     } catch (error) {
-      console.error("Document upload error:", error);
+      console.error("❌ Document upload error:", error);
+      console.error("   Error stack:", error.stack);
+      console.error("   Error name:", error.name);
+      console.error("   Error message:", error.message);
 
       // Handle multer errors
       if (error instanceof multer.MulterError) {
+        console.error("   Multer error code:", error.code);
         if (error.code === "LIMIT_FILE_SIZE") {
-          return sendError(res, "File too large. Maximum size is 5MB.", 400);
+          return sendError(res, "File too large. Maximum size is 5MB per file.", 400);
         }
+        if (error.code === "LIMIT_UNEXPECTED_FILE") {
+          return sendError(res, "Invalid file field. Please check document field names.", 400);
+        }
+        if (error.code === "LIMIT_FILE_COUNT") {
+          return sendError(res, "Too many files. Maximum 8 documents allowed.", 400);
+        }
+        return sendError(res, `Upload error: ${error.message}`, 400);
       }
 
       if (error.message.includes("Invalid file type")) {
         return sendError(res, error.message, 400);
       }
 
-      sendError(res, "Failed to upload documents", 500);
+      sendError(res, "Failed to upload documents. Please try again.", 500);
     }
   },
 ];
