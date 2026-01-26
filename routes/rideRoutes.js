@@ -108,19 +108,12 @@ router.post(
   rideController.addTip
 );
 
-// Rating system
+// Rating system - Only rider can rate driver
 router.post(
   "/:id/rate-driver",
   formDataParser.none(), // Parse form-data fields
   checkPermission("rate_driver"),
   rideController.rateDriver
-);
-
-router.post(
-  "/:id/rate-rider",
-  formDataParser.none(), // Parse form-data fields
-  checkPermission("rate_rider"),
-  rideController.rateRider
 );
 
 module.exports = router;
