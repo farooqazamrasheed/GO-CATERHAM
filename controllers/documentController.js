@@ -5,6 +5,23 @@ const multer = require("multer");
 const path = require("path");
 const fs = require("fs");
 
+/**
+ * Helper function to get full document URL for frontend
+ * Handles both Cloudinary URLs and local paths
+ */
+function getFullDocumentUrl(documentUrl) {
+  if (!documentUrl) return null;
+  
+  // If already a full URL (Cloudinary), return as-is
+  if (documentUrl.startsWith('http://') || documentUrl.startsWith('https://')) {
+    return documentUrl;
+  }
+  
+  // If local path, construct full URL with backend base URL
+  const baseUrl = process.env.BASE_URL || `http://localhost:${process.env.PORT || 5000}`;
+  return `${baseUrl}${documentUrl}`;
+}
+
 // Upload document fields
 const uploadDocuments = documentUpload.fields(documentFields);
 
@@ -92,21 +109,39 @@ exports.uploadDriverDocuments = [
         "vehiclePhotoSide",
       ];
 
+      // Detect storage type - check if Cloudinary credentials are present
+      const useCloudinary = !!(
+        process.env.CLOUDINARY_CLOUD_NAME &&
+        process.env.CLOUDINARY_API_KEY &&
+        process.env.CLOUDINARY_API_SECRET
+      );
+
+      console.log(`   📦 Storage Type: ${useCloudinary ? 'Cloudinary ☁️' : 'Local 💾'}`);
+
       // Process uploaded files
       documentFields.forEach((field) => {
         if (req.files && req.files[field] && req.files[field][0]) {
           const file = req.files[field][0];
-          const fileUrl = `/uploads/documents/${file.filename}`;
+          
+          // Get correct file URL based on storage type
+          // Cloudinary: file.path contains full HTTPS URL
+          // Local: construct relative path
+          const fileUrl = useCloudinary 
+            ? file.path 
+            : `/uploads/documents/${file.filename}`;
           
           console.log(`   Processing ${field}:`, {
             originalName: file.originalname,
             filename: file.filename,
             size: file.size,
-            mimetype: file.mimetype
+            mimetype: file.mimetype,
+            storage: useCloudinary ? 'Cloudinary' : 'Local',
+            url: fileUrl
           });
 
-          // Delete old file if exists
+          // Delete old file if exists (only for local storage)
           if (
+            !useCloudinary &&
             driver.documents &&
             driver.documents[field] &&
             driver.documents[field].url
@@ -119,10 +154,10 @@ exports.uploadDriverDocuments = [
             if (fs.existsSync(oldFilePath)) {
               try {
                 fs.unlinkSync(oldFilePath);
-                console.log(`Deleted old document: ${oldFilePath}`);
+                console.log(`   🗑️ Deleted old document: ${oldFilePath}`);
               } catch (error) {
                 console.error(
-                  `Failed to delete old document ${oldFilePath}:`,
+                  `   ⚠️ Failed to delete old document ${oldFilePath}:`,
                   error
                 );
               }
@@ -232,7 +267,7 @@ exports.getDriverDocuments = async (req, res) => {
       drivingLicenseFront: {
         uploaded: !!documents.drivingLicenseFront?.url,
         verified: documents.drivingLicenseFront?.verified || false,
-        url: documents.drivingLicenseFront?.url,
+        url: getFullDocumentUrl(documents.drivingLicenseFront?.url),
         uploadedAt: documents.drivingLicenseFront?.uploadedAt,
         status: documents.drivingLicenseFront?.status || 'not_uploaded',
         rejected: documents.drivingLicenseFront?.rejected || false,
@@ -243,7 +278,7 @@ exports.getDriverDocuments = async (req, res) => {
       drivingLicenseBack: {
         uploaded: !!documents.drivingLicenseBack?.url,
         verified: documents.drivingLicenseBack?.verified || false,
-        url: documents.drivingLicenseBack?.url,
+        url: getFullDocumentUrl(documents.drivingLicenseBack?.url),
         uploadedAt: documents.drivingLicenseBack?.uploadedAt,
         status: documents.drivingLicenseBack?.status || 'not_uploaded',
         rejected: documents.drivingLicenseBack?.rejected || false,
@@ -254,7 +289,7 @@ exports.getDriverDocuments = async (req, res) => {
       cnicFront: {
         uploaded: !!documents.cnicFront?.url,
         verified: documents.cnicFront?.verified || false,
-        url: documents.cnicFront?.url,
+        url: getFullDocumentUrl(documents.cnicFront?.url),
         uploadedAt: documents.cnicFront?.uploadedAt,
         status: documents.cnicFront?.status || 'not_uploaded',
         rejected: documents.cnicFront?.rejected || false,
@@ -265,7 +300,7 @@ exports.getDriverDocuments = async (req, res) => {
       cnicBack: {
         uploaded: !!documents.cnicBack?.url,
         verified: documents.cnicBack?.verified || false,
-        url: documents.cnicBack?.url,
+        url: getFullDocumentUrl(documents.cnicBack?.url),
         uploadedAt: documents.cnicBack?.uploadedAt,
         status: documents.cnicBack?.status || 'not_uploaded',
         rejected: documents.cnicBack?.rejected || false,
@@ -276,7 +311,7 @@ exports.getDriverDocuments = async (req, res) => {
       vehicleRegistration: {
         uploaded: !!documents.vehicleRegistration?.url,
         verified: documents.vehicleRegistration?.verified || false,
-        url: documents.vehicleRegistration?.url,
+        url: getFullDocumentUrl(documents.vehicleRegistration?.url),
         uploadedAt: documents.vehicleRegistration?.uploadedAt,
         status: documents.vehicleRegistration?.status || 'not_uploaded',
         rejected: documents.vehicleRegistration?.rejected || false,
@@ -287,7 +322,7 @@ exports.getDriverDocuments = async (req, res) => {
       insuranceCertificate: {
         uploaded: !!documents.insuranceCertificate?.url,
         verified: documents.insuranceCertificate?.verified || false,
-        url: documents.insuranceCertificate?.url,
+        url: getFullDocumentUrl(documents.insuranceCertificate?.url),
         uploadedAt: documents.insuranceCertificate?.uploadedAt,
         status: documents.insuranceCertificate?.status || 'not_uploaded',
         rejected: documents.insuranceCertificate?.rejected || false,
@@ -298,7 +333,7 @@ exports.getDriverDocuments = async (req, res) => {
       vehiclePhotoFront: {
         uploaded: !!documents.vehiclePhotoFront?.url,
         verified: documents.vehiclePhotoFront?.verified || false,
-        url: documents.vehiclePhotoFront?.url,
+        url: getFullDocumentUrl(documents.vehiclePhotoFront?.url),
         uploadedAt: documents.vehiclePhotoFront?.uploadedAt,
         status: documents.vehiclePhotoFront?.status || 'not_uploaded',
         rejected: documents.vehiclePhotoFront?.rejected || false,
@@ -309,7 +344,7 @@ exports.getDriverDocuments = async (req, res) => {
       vehiclePhotoSide: {
         uploaded: !!documents.vehiclePhotoSide?.url,
         verified: documents.vehiclePhotoSide?.verified || false,
-        url: documents.vehiclePhotoSide?.url,
+        url: getFullDocumentUrl(documents.vehiclePhotoSide?.url),
         uploadedAt: documents.vehiclePhotoSide?.uploadedAt,
         status: documents.vehiclePhotoSide?.status || 'not_uploaded',
         rejected: documents.vehiclePhotoSide?.rejected || false,
