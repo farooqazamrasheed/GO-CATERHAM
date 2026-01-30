@@ -193,9 +193,9 @@ router.put(
   rideController.rejectRide
 );
 
-// Document re-upload route
+// Document re-upload route (fixed: added :driverId parameter)
 router.put(
-  "/document/:documentType/reupload",
+  "/:driverId/document/:documentType/reupload",
   (req, res, next) => {
     const { documentUpload } = require("../config/multerConfig");
     const upload = documentUpload.single(req.params.documentType);

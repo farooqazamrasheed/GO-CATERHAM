@@ -25,7 +25,7 @@ const validateStatusTransition = (currentStatus, action, document) => {
   const validTransitions = {
     verify: ['not_uploaded', 'uploaded', 'pending_verification', 'rejected'],
     reject: ['uploaded', 'pending_verification'],
-    mark_missing: ['not_uploaded'],
+    mark_missing: ['not_uploaded'], // Only for truly missing documents
     reupload: ['rejected', 'not_uploaded']
   };
 
@@ -54,10 +54,11 @@ const validateStatusTransition = (currentStatus, action, document) => {
   }
 
   // Cannot mark uploaded document as missing
+  // Use reject endpoint for inadequate uploaded documents
   if (action === 'mark_missing' && document.url) {
     return {
       valid: false,
-      message: 'Cannot mark an uploaded document as missing. The document exists in the system.'
+      message: 'Cannot mark an uploaded document as missing. Use reject endpoint to request re-upload of inadequate documents.'
     };
   }
 
